@@ -7,7 +7,7 @@ class DataBase:
     def __init__(self, path):
         if self.open_db(path):
             self.cur.execute(
-                "CREATE TABLE IF NOT EXIST parsers (id AUTOINCREMENT name TEXT attributes TEXT)")
+                "CREATE TABLE IF NOT EXISTS parsers (id integer PRIMARY KEY AUTOINCREMENT, name TEXT, attributes TEXT)")
 
     def open_db(self, path):
         self.db_path = path
@@ -24,10 +24,10 @@ class DataBase:
         self.con.close()
 
     def get_parsers(self):
-        return self.cur.execute("SELECT * FROM parsers")
+        return self.cur.execute("SELECT * FROM parsers").fetchall()
 
     def get_parser(self, id):
-        return self.cur.execute("SELECT * FROM parsers WHERE id=?", (id,))
+        return self.cur.execute("SELECT * FROM parsers WHERE id=?", (id,)).fetchone()
 
     def add_parser(self, name, attributes=None):
         self.cur.execute("INSERT INTO parsers (name, attributes) VALUES(?, ?)", (name, attributes,))
@@ -40,3 +40,6 @@ class DataBase:
     def update_parser(self, id, name, attributes="?"):
         self.cur.execute("UPDATE parsers SET name=?, attributes=? WHERE id=?", (name, attributes, id,))
         self.con.commit()
+
+    def get_lastrowid(self):
+        return self.cur.lastrowid

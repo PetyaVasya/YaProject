@@ -14,14 +14,47 @@ class ParsersList(QWidget):
         self.setGeometry(500, 500, 500, 500)
         self.delete_buttons = QButtonGroup(self)
         self.layout_v = QVBoxLayout(self)
-        self.parsers_elements = []
-        for ind, parser in enumerate(self.parsers):
-            self.parsers_elements.append(ParserElement(parser.name, self))
-            self.delete_buttons.addButton(self.parsers_elements[-1].delete, ind)
-            self.layout_v.addWidget(self.parsers_elements[-1], alignment=Qt.AlignTop)
+        for key, parser in self.parsers.items():
+            parser.set_element(ParserElement(parser.name, self))
+            self.delete_buttons.addButton(parser.element.delete, key)
+            self.layout_v.addWidget(parser.element, alignment=Qt.AlignTop)
         self.createNewButton = QPushButton("+", self)
         self.createNewButton.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.layout_v.addWidget(self.createNewButton, alignment=Qt.AlignTop)
+
+
+class ParserElement(QWidget):
+    clicked = pyqtSignal(str)
+
+    def __init__(self, name, parent=None):
+        super(ParserElement, self).__init__(parent)
+        self.name = name
+        self.initUI()
+
+    def initUI(self):
+        self.element = QHBoxLayout(self)
+        self.title = QLabel(self)
+        self.title.setText(self.name)
+        self.element.addWidget(self.title, stretch=90)
+        self.delete = QPushButton("X", self)
+        self.element.addWidget(self.delete, stretch=10)
+
+    def mousePressEvent(self, event):
+        self.last = "Click"
+
+    def mouseReleaseEvent(self, event):
+        if self.last == "Click":
+            QTimer.singleShot(QApplication.instance().doubleClickInterval(),
+                              self.performSingleClickAction)
+        else:
+            self.clicked.emit(self.last)
+
+    def mouseDoubleClickEvent(self, event):
+        self.last = "Double Click"
+
+    def performSingleClickAction(self):
+        if self.last == "Click":
+            self.clicked.emit(self.last)
 
 
 class ParserEdit(QWidget):
@@ -38,12 +71,17 @@ class ParserEdit(QWidget):
         if self.parser:
             self.name_edit.setText(self.parser.name)
 
+    def get_name(self):
+        return self.name_edit.toPlainText()
+
 
 class Parser:
 
-    def __init__(self, name, attributes=dict()):
+    def __init__(self, id, name, attributes, element=None):
+        self.id = id
         self.name = name
         self.attributes = attributes
+        self.element = element
 
     def add_attribute(self, name, value):
         self.attributes[name] = value
@@ -51,6 +89,12 @@ class Parser:
     def remove_attribute(self, name):
         del self.attributes[name]
 
+    def set_element(self, element):
+        self.element = element
+
+    def remove_element(self):
+        self.element.setParent(None)
+        self.element = None
 
         # self.HL = QHBoxLayout(self)
         # self.view = QWebEngineView(self)
@@ -96,37 +140,3 @@ class Parser:
     #
     # def js_callback(self, result):
     #     print(result)
-
-
-class ParserElement(QWidget):
-    clicked = pyqtSignal(str)
-
-    def __init__(self, name, parent=None):
-        super(ParserElement, self).__init__(parent)
-        self.name = name
-        self.initUI()
-
-    def initUI(self):
-        self.element = QHBoxLayout(self)
-        self.title = QLabel(self)
-        self.title.setText(self.name)
-        self.element.addWidget(self.title, stretch=90)
-        self.delete = QPushButton("X", self)
-        self.element.addWidget(self.delete, stretch=10)
-
-    def mousePressEvent(self, event):
-        self.last = "Click"
-
-    def mouseReleaseEvent(self, event):
-        if self.last == "Click":
-            QTimer.singleShot(QApplication.instance().doubleClickInterval(),
-                              self.performSingleClickAction)
-        else:
-            self.clicked.emit(self.last)
-
-    def mouseDoubleClickEvent(self, event):
-        self.last = "Double Click"
-
-    def performSingleClickAction(self):
-        if self.last == "Click":
-            self.clicked.emit(self.last)
