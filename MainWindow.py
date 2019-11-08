@@ -6,14 +6,6 @@ from QParser import Parser, ParserEdit, ParsersList
 from DataBase import DataBase
 
 
-class WebEnginePage(QWebEnginePage):
-
-    def acceptNavigationRequest(self, url, navType, mainFrame):
-        if navType == QWebEnginePage.NavigationTypeTyped:
-            return True
-        return False
-
-
 class MainWindow(QMainWindow):
 
     def __init__(self, path):
@@ -22,14 +14,18 @@ class MainWindow(QMainWindow):
         self.initUI()
 
     def initUI(self):
+        self.setGeometry(500, 500, 500, 500)
+
         self.actions_menu = QButtonGroup(self)
 
         self.ok_button = QPushButton("OK", self)
         self.ok_button.setShortcut("Return")
+        self.test_button = QPushButton("Test", self)
         self.apply_button = QPushButton("Apply", self)
         self.cancel_button = QPushButton("Cancel", self)
 
         self.actions_menu.addButton(self.ok_button)
+        self.actions_menu.addButton(self.test_button)
         self.actions_menu.addButton(self.apply_button)
         self.actions_menu.addButton(self.cancel_button)
         self.actions_menu.buttonClicked.connect(self.finalEditAction)
@@ -85,9 +81,9 @@ class MainWindow(QMainWindow):
 
             else:
 
-                self.db.add_parser(self.parser_edit.get_name())
+                self.db.add_parser(self.parser_edit.get_name(), self.parser_edit.get_url())
                 self.parsers_list.parsers[self.db.get_lastrowid()] = Parser(self.db.get_lastrowid(),
-                                                                            self.parser_edit.get_name(), None)
+                                                                            self.parser_edit.get_name(),self.parser_edit.get_url(), None)
             self.open_parsers_list()
 
         elif btn.text() == "Apply":

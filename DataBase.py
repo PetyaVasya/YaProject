@@ -7,7 +7,7 @@ class DataBase:
     def __init__(self, path):
         if self.open_db(path):
             self.cur.execute(
-                "CREATE TABLE IF NOT EXISTS parsers (id integer PRIMARY KEY AUTOINCREMENT, name TEXT, attributes TEXT)")
+                "CREATE TABLE IF NOT EXISTS parsers (id integer PRIMARY KEY AUTOINCREMENT, name TEXT, url TEXT, attributes TEXT)")
 
     def open_db(self, path):
         self.db_path = path
@@ -29,16 +29,16 @@ class DataBase:
     def get_parser(self, id):
         return self.cur.execute("SELECT * FROM parsers WHERE id=?", (id,)).fetchone()
 
-    def add_parser(self, name, attributes=None):
-        self.cur.execute("INSERT INTO parsers (name, attributes) VALUES(?, ?)", (name, attributes,))
+    def add_parser(self, name, url=None, attributes=None):
+        self.cur.execute("INSERT INTO parsers (name, url, attributes) VALUES(?, ?, ?)", (name, url, attributes,))
         self.con.commit()
 
     def delete_parser(self, id):
         self.cur.execute("DELETE FROM parsers WHERE id=" + str(id))
         self.con.commit()
 
-    def update_parser(self, id, name, attributes="?"):
-        self.cur.execute("UPDATE parsers SET name=?, attributes=? WHERE id=?", (name, attributes, id,))
+    def update_parser(self, id, name, url=None, attributes=None):
+        self.cur.execute("UPDATE parsers SET name=?, url=?, attributes=? WHERE id=?", (name, url, attributes, id,))
         self.con.commit()
 
     def get_lastrowid(self):
