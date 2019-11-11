@@ -4,7 +4,6 @@ from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QComboBox, QScrollArea
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QUrl, QEvent
 import requests
-import sys
 import re
 
 
@@ -70,17 +69,25 @@ class ParserElement(QWidget):
 
 
 class ParserEdit(QWidget):
+    thing_changed = pyqtSignal([int], [int, int, QWidget])
     name_changed = 1
     url_changed = 2
+    attributes_changed = 3
+    name_empty_error = 4
+    attribute_error = 5
+    incorrect_url_error = 6
 
-    def __init__(self, q_parser, parent=None):
+    def __init__(self, q_parser, new, parent=None):
         super(ParserEdit, self).__init__(parent)
         self.q_parser = q_parser
         self.foc_attr_value = None
-        self.changed = False
+        self.changed = {self.name_changed: False, self.url_changed: False, self.attributes_changed: False}
+        self.errors = {self.name_empty_error: new, self.attribute_error: False, self.incorrect_url_error: new}
+        self.new = new
         self.initUI()
 
     def initUI(self):
+        self.thing_changed.connect(self.check_changes)
         self.layout_v = QVBoxLayout(self)
         # self.setLayout(self.layout_v)
         self.top_l = QGridLayout(self)
@@ -91,9 +98,12 @@ class ParserEdit(QWidget):
         self.name_edit = QLineEdit(self)
         # self.name_edit.setMaximumHeight(30)
         self.name_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.name_edit.editingFinished.connect(lambda: self.check_error(self.name_changed))
+        self.name_edit.textChanged.connect(lambda: self.send_changed(self.name_changed))
         self.url_edit = QLineEdit(self)
         self.url_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.url_edit.editingFinished.connect(self.open_browser)
+        self.url_edit.textChanged.connect(lambda: self.send_changed(self.url_changed))
         # self.url_edit.setMaximumHeight(30)
         self.top_l.addWidget(QLabel("Name:"), 0, 0)
         self.top_l.addWidget(self.name_edit, 0, 1)
@@ -105,10 +115,16 @@ class ParserEdit(QWidget):
         self.fields_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.fields_area.setWidgetResizable(True)
         self.fields_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.fields_area.setContentsMargins(0, 0, 0, 0)
         self.fields = FieldsPull(attributes=self.q_parser.attributes, parent=self, e_filter=self)
         self.fields.field_changed.connect(lambda: print("changes"))
         self.fields.installEventFilter(self)
         self.fields.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.fields.field_changed.connect(lambda: self.send_changed(self.attributes_changed))
+        self.fields.error_created.connect(lambda: self.errors.__setitem__(self.attribute_error, True))
+        self.fields.errors_fixed.connect(lambda: self.errors.__setitem__(self.attribute_error, False))
+        # self.fields.error_created[int, QWidget].connect(lambda x, y: self.errors.setdefault(y, set()).add(x))
+        # self.fields.error_fixed[int, QWidget].connect(lambda x, y: self.errors[y].remove(x))
         self.fields_area.setWidget(self.fields)
         self.body.addWidget(self.fields_area, Qt.AlignTop)
         self.body.setStretch(1, 40)
@@ -152,7 +168,11 @@ class ParserEdit(QWidget):
 
     def open_browser(self):
         if self.check_url(self.get_url()):
+            normalize_widget(self.url_edit)
+            self.errors[self.incorrect_url_error] = False
             self.open_url(self.get_url())
+        else:
+            self.show_error(self.incorrect_url_error)
 
     def eventFilter(self, source, event):
         if (event.type() == QEvent.Resize) and (source is self.fields):
@@ -187,10 +207,12 @@ class ParserEdit(QWidget):
 
     def js_callback(self, result):
         if self.foc_attr_value:
-            print(1)
             self.foc_attr_value.setText(result)
             self.foc_attr_value.editingFinished.emit()
             self.foc_attr_value = None
+        else:
+            pass
+            # self.fields.create_field()
         print(result)
 
     def create_log_widget(self):
@@ -204,32 +226,69 @@ class ParserEdit(QWidget):
         self.logs.append(log)
 
     def check_changes(self, *args):
+        self.check_error(args[0])
+        if args[0] == self.name_changed:
+            self.changed[self.name_changed] = self.get_name() != self.q_parser.name
+        elif args[0] == self.url_changed:
+            self.changed[self.url_changed] = self.get_url() != self.q_parser.url
+        elif args[0] == self.attributes_changed:
+            print(self.get_attributes())
+            print(self.q_parser.attributes)
+            self.changed[self.attributes_changed] = self.get_attributes() != self.q_parser.attributes
+
+    def check_error(self, type):
+        if type == self.name_changed:
+            if self.get_name():
+                normalize_widget(self.name_edit)
+                self.errors[self.name_empty_error] = False
+            else:
+                self.show_error(self.name_empty_error)
+
+    def send_changed(self, type):
+        self.thing_changed.emit(type)
+
+    def show_error(self, type):
+        if type == self.name_empty_error:
+            errorize_widget(self.name_edit)
+            self.errors[self.name_empty_error] = True
+        elif type == self.incorrect_url_error:
+            errorize_widget(self.url_edit)
+            self.errors[self.incorrect_url_error] = True
 
 
 class FieldsPull(QWidget):
     field_changed = pyqtSignal(int, QWidget)
+    error_created = pyqtSignal(int, QWidget)
+    errors_fixed = pyqtSignal()
     key_exists_error = 1
     value_empty_error = 2
     type_empty_error = 3
 
-    def __init__(self, attributes=None, parent=None, del_func=None, e_filter=None):
+    def __init__(self, attributes=None, parent=None, e_filter=None):
         super(FieldsPull, self).__init__(parent)
         self.attributes = attributes
-        self.del_func = del_func
         if e_filter:
             self.e_filter = e_filter
         else:
             self.e_filter = self
+        self.errors = {}
         self.initUI()
 
     def initUI(self):
+        self.field_changed[int, QWidget].connect(self.check_error)
+        self.error_created[int, QWidget].connect(
+            lambda x, y: self.errors.setdefault(y, set()).add(x))
+        # self.error_fixed[int, QWidget].connect(lambda x, y: self.errors[y].remove(x))
         self.body = QVBoxLayout(self)
-        if self.attributes:
-            for attribute in self.attributes:
-                self.create_field(attribute)
-            self.create_space(self.get_last_widget())
-        else:
-            self.create_field()
+        self.body.setContentsMargins(0, 0, 0, 0)
+        attrs = tuple(self.attributes.items())
+        self.create_field(attrs[0] if attrs else None)
+        for attribute in attrs[1:]:
+            self.create_field(attribute)
+            # self.get_last_widget().set_values(attribute[0], *attribute[1])
+        #     self.create_field(attribute)
+        # if attrs:
+        #     self.create_field()
 
     def get_last_widget(self):
         if self.body.count():
@@ -248,56 +307,86 @@ class FieldsPull(QWidget):
         return dict(field.get_item() for field in self.get_all_widgets()[:-1])
 
     def get_keys(self):
-        return tuple(field.get_item()[0] for field in self.get_all_widgets())
+        return tuple(field.get_item()[0] for field in self.get_all_widgets()[:-1])
 
     def create_field(self, attribute=None):
-        new = FieldEdit(values=attribute, parent=self, del_func=self.del_func)
-        self.body.addWidget(new, alignment=Qt.AlignTop)
-        # new.key.textEdited.connect(self.thing_changed)
-        new.edit_finished[QWidget].connect(self.create_space)
-        new.edit_finished[QWidget].connect(lambda x: self.show_error(x, self.name_exists_error) if self.exists_name(x) else None)
-        new.edit_changed.connect(self.field_change)
-        new.key.installEventFilter(self.e_filter)
-        # new.value.textEdited.connect(self.field_change)
-        new.value.installEventFilter(self.e_filter)
-        return new
+        if self.body.count() and attribute:
+            last = self.get_last_widget()
+            last.set_values(attribute[0], *attribute[1])
+            return last
+        else:
+            new = FieldEdit(values=attribute, parent=self)
+            self.body.addWidget(new, alignment=Qt.AlignTop)
+            # new.key.textEdited.connect(self.thing_changed)
+            new.edit_finished[QWidget].connect(self.create_space)
+            new.edit_changed[int, QWidget].connect(self.field_change)
+            new.key.installEventFilter(self.e_filter)
+            # new.value.textEdited.connect(self.field_change)
+            new.value.installEventFilter(self.e_filter)
+            return new
 
     def create_space(self, last):
-        self.create_field()
         last.edit_finished.disconnect(self.create_space)
+        return self.create_field()
 
-    def field_change(self, *args):
+    def field_change(self, type, field):
         print("f_changed")
-        # if
-        self.field_changed.emit(args[1], args[0])
+        self.field_changed.emit(type, field)
 
-    def exists_name(self, field):
-        if self.get_keys().count(field.get_key()) > 1:
+    def exists_key(self, key):
+        if self.get_keys().count(key) > 1:
             return True
         return False
 
-    def show_error(self, field, type):
+    def check_error(self, type, field):
+        if type == FieldEdit.key_changed:
+            if self.exists_key(field.get_key()):
+                self.show_error(self.key_exists_error, field)
+            else:
+                normalize_widget(field.key)
+                self.remove_error(type, field)
+        elif type == FieldEdit.value_changed:
+            if field.get_value():
+                normalize_widget(field.value)
+                self.remove_error(type, field)
+            else:
+                self.show_error(self.value_empty_error, field)
+        elif type == FieldEdit.type_changed:
+            if field.get_type():
+                normalize_widget(field.value_type)
+                self.remove_error(type, field)
+            else:
+                self.show_error(self.type_empty_error, field)
+
+    def show_error(self, type, field):
         if type == self.type_empty_error:
-            field.value_type.setStyleSheet("border: 4px solid red;")
+            errorize_widget(field.value_type)
         elif type == self.value_empty_error:
-            field.value.setStyleSheet("border: 4px solid red;")
+            errorize_widget(field.value)
         elif type == self.key_exists_error:
-            field.key.setStyleSheet("border: 4px solid red;")
+            errorize_widget(field.key)
+        self.error_created[int, QWidget].emit(type, field)
+
+    def remove_error(self, type, field):
+        if self.errors.get(field):
+            if len(self.errors[field]) > 1:
+                self.errors[field].remove(type)
+            else:
+                self.errors.pop(field)
+        if not self.errors:
+            self.errors_fixed.emit()
 
 
 class FieldEdit(QWidget):
     edit_finished = pyqtSignal(QWidget)
-    edit_changed = pyqtSignal([QWidget, int], [QWidget, int, str])
-    key_changed = 3
-    value_changed = 4
-    type_changed = 5
+    edit_changed = pyqtSignal(int, QWidget)
+    key_changed = 1
+    value_changed = 2
+    type_changed = 3
+    field_deleted = 4
 
-    def __init__(self, values=None, parent=None, del_func=None):
+    def __init__(self, values=None, parent=None):
         super(FieldEdit, self).__init__(parent)
-        if del_func:
-            self.del_func = del_func
-        else:
-            self.del_func = self.delete
         self.initUI(values)
 
     def initUI(self, values=None):
@@ -337,6 +426,7 @@ class FieldEdit(QWidget):
         return self.get_key(), (self.get_value(), self.get_type())
 
     def set_values(self, key, value, type):
+        self.send_finished()
         self.key.setText(key)
         self.value.setText(value)
         self.value_type.setCurrentText(type)
@@ -351,20 +441,20 @@ class FieldEdit(QWidget):
     def add_delete_btn(self):
         if not self.delete_btn:
             self.delete_btn = QPushButton("X", self)
-            self.delete_btn.clicked.connect(self.del_func)
+            self.delete_btn.clicked.connect(self.delete)
             self.delete_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.body.addWidget(self.delete_btn, 10)
             return self.delete_btn
 
     def delete(self):
         self.setParent(None)
+        self.send_changed(self.field_deleted)
 
     def add_select_type_box(self):
         if not self.value_type:
             self.value_type = QComboBox(self)
             self.value_type.addItems([])
-            self.value_type.activated[str].connect(
-                lambda x: self.send_changed(self.type_changed, x))
+            self.value_type.activated.connect(lambda: self.send_changed(self.type_changed))
             self.body.addWidget(self.value_type, 20)
             return self.value_type
 
@@ -382,10 +472,9 @@ class FieldEdit(QWidget):
         self.value_type.clear()
         self.value_type.addItems(vars)
 
-    def send_changed(self, *args):
-        self.edit_changed[(QWidget, int) if len(args) == 1 else (QWidget, int, str)].emit(self,
-                                                                                          *args)
-        if args[0] == self.value_changed:
+    def send_changed(self, type):
+        self.edit_changed[int, QWidget].emit(type, self)
+        if type == self.value_changed:
             self.set_value_types()
 
     def send_finished(self):
@@ -394,7 +483,7 @@ class FieldEdit(QWidget):
 
 class QParser:
 
-    def __init__(self, id, name, url, attributes, element=None):
+    def __init__(self, id=None, name="", url="", attributes=dict(), element=None):
         self.id = id
         self.name = name
         self.url = url
@@ -444,4 +533,9 @@ class QParser:
     #
 
 
-S_WRITE = sys.stdout.write
+def normalize_widget(widget):
+    widget.setStyleSheet("border: None;")
+
+
+def errorize_widget(widget):
+    widget.setStyleSheet("border: 4px solid red;")

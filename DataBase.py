@@ -32,6 +32,7 @@ class DataBase:
     def add_parser(self, name, url=None, attributes=None):
         self.cur.execute("INSERT INTO parsers (name, url, attributes) VALUES(?, ?, ?)", (name, url, attributes,))
         self.con.commit()
+        return self.get_lastrowid()
 
     def delete_parser(self, id):
         self.cur.execute("DELETE FROM parsers WHERE id=" + str(id))

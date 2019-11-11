@@ -1,7 +1,7 @@
 import sys
 from PyQt5.QtWidgets import QApplication
 from MainWindow import MainWindow
-import sqlite3
+
 
 def main():
     app = QApplication(sys.argv)
