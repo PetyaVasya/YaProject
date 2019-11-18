@@ -1,8 +1,9 @@
-from PyQt5.QtGui import QIcon
+from PyQt5.QtGui import QIcon, QPainter, QFontDatabase, QFont, QPixmap, QFontMetrics
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QHBoxLayout, QVBoxLayout, QSizePolicy, QLineEdit, QButtonGroup, QGridLayout, QTextBrowser, \
-    QComboBox, QScrollArea, QFileDialog, QStyle, QProgressBar
+    QComboBox, QScrollArea, QFileDialog, QStyle, QProgressBar, QStyleOption, QRadioButton, \
+    QStackedWidget, QMainWindow, QTextEdit, QTreeWidget, QDialog, QStatusBar
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QUrl, QEvent
 import requests
 import re
@@ -24,22 +25,67 @@ class ParsersList(QWidget):
         self.q_parsers = q_parsers
         self.initUI()
 
+    def paintEvent(self, evt):
+        super(ParsersList, self).paintEvent(evt)
+        opt = QStyleOption()
+        opt.initFrom(self)
+        p = QPainter(self)
+        s = self.style()
+        s.drawPrimitive(QStyle.PE_Widget, opt, p, self)
+
+    def move_buttons(self):
+        ph = self.parent().height()
+        pw = self.parent().width()
+        px = self.parent().geometry().x()
+        py = self.parent().geometry().y()
+        dw = self.createNewButton.maximumWidth()
+        dh = self.createNewButton.maximumHeight()
+        self.createNewButton.setGeometry(px + pw - dw - 30, py + ph - dh - 21 - min(29, (ph / 8)), dw, dh)
+        for i in self.get_elements():
+            i.move_delete()
+
     def initUI(self):
         self.delete_buttons = QButtonGroup(self)
         self.parse_buttons = QButtonGroup(self)
+        self.setStyleSheet("""
+        ParsersList {
+            background-color: #121212;
+            border-radius: 20px;
+            }
+        """)
         self.layout_v = QVBoxLayout(self)
         for key, value in self.q_parsers.items():
             new = ParserElement(name=value[0], id=key, respath=value[1], parent=self)
             self.delete_buttons.addButton(new.delete, key)
             self.parse_buttons.addButton(new.run, key)
             self.layout_v.addWidget(new, alignment=Qt.AlignTop)
+
+        # tell painter to use your font:
+
         self.createNewButton = QPushButton("+", self)
-        self.createNewButton.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.layout_v.addWidget(self.createNewButton, alignment=Qt.AlignTop)
+        # self.createNewButton.setFont(your_ttf_font)
+        self.createNewButton.setStyleSheet("position:relative;top:100px;background-color: #03DAC5; border-radius:30px; color:black; font-size: 26px;")
+        # self.createNewButton.move(300, 300)
+        # self.createNewButton.setParent(self)
+        self.createNewButton.setMaximumWidth(60)
+        self.createNewButton.setMaximumHeight(60)
+        self.createNewButton.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        self.move_buttons()
+        # self.layout_v.addWidget(self.createNewButton, alignment=Qt.AlignTop)
 
     def get_element(self, id):
         return next((self.layout_v.itemAt(i).widget() for i in range(self.layout_v.count()) if
                      self.layout_v.itemAt(i).widget().id == id), None)
+
+    def add_element(self, name, id, respath=None):
+        new = ParserElement(name=name, id=id, respath=respath, parent=self)
+        self.delete_buttons.addButton(new.delete, id)
+        self.parse_buttons.addButton(new.run, id)
+        self.layout_v.insertWidget(self.layout_v.count() - 1,new, alignment=Qt.AlignTop)
+        return new
+
+    def get_elements(self):
+        return (self.layout_v.itemAt(i).widget() for i in range(self.layout_v.count()))
 
 
 class ParserElement(QWidget):
@@ -55,15 +101,46 @@ class ParserElement(QWidget):
         self.run_vars = ["SP_MediaPlay", "SP_MediaPause"]
         self.initUI()
 
+    def paintEvent(self, evt):
+        super(ParserElement, self).paintEvent(evt)
+        opt = QStyleOption()
+        opt.initFrom(self)
+        p = QPainter(self)
+        s = self.style()
+        s.drawPrimitive(QStyle.PE_Widget, opt, p, self)
+
     def initUI(self):
+        btn_css = '''border-radius:5px;font-size:24px;background-color:#BB86FC;
+        '''
+        btn_css2 = '''border-radius:15px;font-size:16px;background-color:white;
+                '''
         self.setMinimumHeight(200)
+        self.setStyleSheet("""
+        ParserElement {
+            background-color: rgb(30, 30, 30);
+            border-radius: 20px;
+            }
+        """)
+
+        # self.setStyleSheet('''border-radius:50px; background-color:white;''')
+        # self.setAutoFillBackground(True)
+        # a = self.palette()
+        # a.setColor(self.backgroundRole(), Qt.white)
+        # self.setPalette(a)
+        # self.st
         self.element = QHBoxLayout(self)
+        self.pixmap = QPixmap("img.png")
+        self.img = QLabel(self)
+        self.img.setPixmap(self.pixmap)
         self.title = QLabel(self)
         self.title.setText(self.name)
+        self.title.setStyleSheet('''color:white;font-size:32px''')
+        self.element.addWidget(self.img)
         self.element.addWidget(self.title, stretch=60)
         self.result = QPushButton(self)
         self.result.setIcon(self.style().standardIcon(getattr(QStyle, "SP_FileIcon")))
         self.result.clicked.connect(self.open_result)
+        self.result.setStyleSheet(btn_css)
         self.parse_bar = QProgressBar(self)
         self.parse_bar.setFormat("%v/%m")
         self.parse_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -75,11 +152,22 @@ class ParserElement(QWidget):
         self.element.addWidget(self.parse_bar, stretch=20)
         self.element.addWidget(self.result, stretch=10)
         self.run = QPushButton(self)
+        self.run.setStyleSheet(btn_css)
         # self.run.clicked.connect(self.run_stop)
         self.run.setIcon(self.style().standardIcon(getattr(QStyle, self.run_vars[self.execute])))
         self.element.addWidget(self.run, stretch=10)
         self.delete = QPushButton("X", self)
-        self.element.addWidget(self.delete, stretch=10)
+        print(self.width())
+        self.setContentsMargins(0, 0, 0, 0)
+        self.delete.setFixedWidth(30)
+        self.delete.setFixedHeight(30)
+        self.delete.setGeometry(self.width() - self.delete.width(), 0, self.delete.width(), self.delete.height())
+        self.delete.setStyleSheet(btn_css2)
+        # self.element.addWidget(self.delete, stretch=10)
+
+    def move_delete(self):
+        self.delete.setGeometry(self.width() - self.delete.width(), 0, self.delete.width(),
+                                self.delete.height())
 
     def mousePressEvent(self, event):
         self.last = "Click"
@@ -141,16 +229,17 @@ class ParserEdit(QWidget):
     name_changed = 1
     url_changed = 2
     attributes_changed = 3
-    name_empty_error = 4
-    attribute_error = 5
-    incorrect_url_error = 6
+    links_changed = 4
+    name_empty_error = 5
+    attribute_error = 6
+    incorrect_url_error = 7
 
     def __init__(self, q_parser, new, parent=None):
         super(ParserEdit, self).__init__(parent)
         self.q_parser = q_parser
         self.foc_attr_value = None
         self.changed = {self.name_changed: False, self.url_changed: False,
-                        self.attributes_changed: False}
+                        self.attributes_changed: False, self.links_changed: False}
         self.errors = {self.name_empty_error: new, self.attribute_error: False,
                        self.incorrect_url_error: new}
         self.new = new
@@ -182,12 +271,13 @@ class ParserEdit(QWidget):
         self.url_load.clicked.connect(self.open_browser)
         self.url_edit.textChanged.connect(lambda: self.send_changed(self.url_changed))
         # self.url_edit.setMaximumHeight(30)
-        self.upload_links = QPushButton("Upload", self)
-        self.upload_links.clicked.connect(self.get_file)
+        self.btn_upload = QPushButton("Upload", self)
+        # self.upload_links.clicked.connect(self.get_file)
+        self.btn_upload.clicked.connect(self.upload_links)
         self.top_l.addWidget(QLabel("Name:"), 0, 0)
         self.top_l.addWidget(self.name_edit, 0, 1)
         self.top_l.addWidget(QLabel("Url:"), 1, 0)
-        self.top_l.addWidget(self.upload_links, 0, 2)
+        self.top_l.addWidget(self.btn_upload, 0, 2)
         # self.top_l.addWidget(self.url_edit, 1, 1)
         self.top_l.addWidget(self.links_box, 1, 1)
         self.top_l.addWidget(self.url_load, 1, 2)
@@ -336,10 +426,10 @@ class ParserEdit(QWidget):
         elif args[0] == self.url_changed:
             self.changed[self.url_changed] = self.get_url() != self.q_parser.url
         elif args[0] == self.attributes_changed:
-            print(self.get_attributes())
-            print(self.q_parser.attributes)
             self.changed[
                 self.attributes_changed] = self.get_attributes() != self.q_parser.attributes
+        elif args[0] == self.links_changed:
+            self.changed[self.links_changed] = self.fname != self.q_parser.filepath
 
     def check_error(self, type):
         if type == self.name_changed:
@@ -360,15 +450,30 @@ class ParserEdit(QWidget):
             errorize_widget(self.url_edit)
             self.errors[self.incorrect_url_error] = True
 
-    def get_file(self):
-        self.fname = QFileDialog.getOpenFileName(self, 'Выберите файл с ссылками', '')[0]
-        self.links_from_file(self.fname)
+    def upload_links(self):
+        self.upload_window = UploadLinksWidget(self, "File", self.fname)
+        if self.upload_window.exec_():
+            self.link_type, self.res = self.upload_window.get_result()
+            if self.link_type == "File":
+                self.links_from_file(self.res)
+            elif self.link_type == "Links":
+                self.links = self.res.split("\n")
+                self.set_links(self.links)
+
+        # self.upload_window.show()
 
     def links_from_file(self, file):
         if file:
             with open(file, "r") as links:
                 self.links = links.read().split("\n")
-                self.links_box.addItems(self.links)
+                self.set_links(self.links)
+                self.url_edit.setText(self.links[0])
+                # self.links_box.setEditable(False)
+                # self.url_edit.setEnabled(False)
+
+    def set_links(self, links):
+        self.links_box.clear()
+        self.links_box.addItems(self.links)
 
 
 class FieldsPull(QWidget):
@@ -630,34 +735,117 @@ class QParser:
         self.element.setParent(None)
         self.element = None
 
-        # self.HL = QHBoxLayout(self)
-        # self.view = QWebEngineView(self)
-        # page = WebEnginePage(self.view)
-        # self.view.setPage(page)
-        # self.view.installEventFilter(self)
-        # self.view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        #
-        # self.left = QVBoxLayout(self)
-        # self.parsersLayout = QVBoxLayout(self)
-        # self.left.addLayout(self.parsersLayout)
-        #
-        # self.button = QPushButton("+", self)
-        # self.button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # self.button.clicked.connect(self.add_parser)
-        # self.left.addWidget(self.button)
-        #
-        # self.HL.addLayout(self.left, 50)
-        # self.HL.addWidget(self.view, 50)
-        # self.HL.setStretch(50, 50)
-        # # self.statusBar = QStatusBar(self)
-        # # self.statusBar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # # self.button1 = QPushButton("<-", self)
-        # # self.statusBar.addWidget(self.button1)
 
-    # def add_parser(self):
-    #     self.q_parsers.append(ParserElement(self))
-    #     self.parsersLayout.addLayout(self.q_parsers[-1].element)
-    #
+class UploadLinksWidget(QDialog):
+
+    def __init__(self, parent=None, *args):
+        super(UploadLinksWidget, self).__init__(parent)
+        self.initUI(*args)
+
+    def initUI(self, type=None, data=None):
+        self.setGeometry(300, 300, 300, 300)
+        self.body = QVBoxLayout(self)
+        self.main = QWidget()
+        # self.setCentralWidget(self.main)
+        self.links_type_layout = QHBoxLayout(self)
+        self.btn_group = QButtonGroup(self)
+        self.btn_links = QRadioButton("Links", self)
+        self.btn_sitemap = QRadioButton("Sitemap", self)
+        self.btn_group.addButton(self.btn_links, 0)
+        self.btn_group.addButton(self.btn_sitemap, 1)
+
+        self.links_type_layout.addWidget(self.btn_links)
+        self.links_type_layout.addWidget(self.btn_sitemap)
+        self.body.addLayout(self.links_type_layout, stretch=10)
+        self.interface = QStackedWidget(self)
+        self.links = QWidget()
+        self.sitemap = QWidget()
+
+        self.links_layout = QVBoxLayout(self)
+        self.links.setLayout(self.links_layout)
+        self.links_edit = QTextEdit(self)
+        self.links_edit.setPlaceholderText("Each line on new line")
+        self.file_layout = QHBoxLayout(self)
+        file = None
+        self.btn_links.setChecked(True)
+        if type:
+            if type == "Links":
+                self.links_edit.setText(data)
+            elif type == "File":
+                file = data
+            elif type == "Sitemap":
+                self.btn_sitemap.setChecked(True)
+            self.type = type
+        else:
+            self.type = ""
+        self.opened_file = CutLabel(file if file else "Choose file")
+        self.btn_open_file = QPushButton("Open")
+        self.file_layout.addWidget(self.opened_file, stretch=90)
+        self.file_layout.addWidget(self.btn_open_file, stretch=10)
+        self.links_layout.addWidget(self.links_edit, stretch=90)
+        self.links_layout.addLayout(self.file_layout, stretch=10)
+
+        self.sitemap_layout = QVBoxLayout(self)
+        self.base_url = QLineEdit(self)
+        self.base_url.setPlaceholderText("Index Url")
+        self.sitemap_layout.addWidget(self.base_url)
+        self.sitemap_tree = QTreeWidget(self)
+        self.sitemap_layout.addWidget(self.sitemap_tree)
+        self.sitemap.setLayout(self.sitemap_layout)
+
+        self.interface.addWidget(self.links)
+        self.interface.addWidget(self.sitemap)
+
+        self.final = QButtonGroup()
+        self.final.addButton(QPushButton("OK", self))
+        self.final.addButton(QPushButton("Cancel", self))
+
+        self.final.buttonClicked.connect(self.close_dialog)
+        self.body.addWidget(self.interface, stretch=90)
+        # self.main.setLayout(self.body)
+        self.setLayout(self.body)
+        self.btn_group.buttonClicked.connect(self.change_interface)
+        self.bar = QHBoxLayout(self)
+        for btn in self.final.buttons():
+            self.bar.addWidget(btn)
+        self.body.addLayout(self.bar)
+        # self.statusBar().addWidget(QPushButton("OK", self))
+        # self.statusBar().addWidget(QPushButton("Cancel", self))
+
+    def change_interface(self, btn):
+        print(self.btn_group.id(btn))
+        self.interface.setCurrentIndex(self.btn_group.id(btn))
+
+    def get_file(self):
+        self.res = QFileDialog.getOpenFileName(self, 'Выберите файл с ссылками', '')[0]
+        if self.res:
+            self.accept()
+            self.type = "File"
+
+    def close_dialog(self, btn):
+        if btn.text() == "OK":
+            self.type = self.btn_group.checkedButton().text()
+            if self.type == "Links":
+                self.res = self.links_edit.toPlainText()
+            else:
+                pass
+            self.accept()
+        else:
+            self.reject()
+
+    def get_result(self):
+        return self.type, self.res
+
+
+class CutLabel(QLabel):
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+
+        metrics = QFontMetrics(self.font())
+        elided = metrics.elidedText(self.text(), Qt.ElideRight, self.width())
+
+        painter.drawText(self.rect(), self.alignment(), elided)
 
 
 def normalize_widget(widget):
