@@ -8,7 +8,7 @@ class DataBase:
         if self.open_db(path):
             self.cur.execute(
                 "CREATE TABLE IF NOT EXISTS parsers (id integer PRIMARY KEY AUTOINCREMENT,"
-                " name TEXT, url TEXT, attributes TEXT, linkstype INTEGER, filepath TEXT,"
+                " name TEXT, url TEXT, attributes TEXT, linkstype TEXT, links TEXT,"
                 " respath TEXT)")
 
     def open_db(self, path):
@@ -31,11 +31,11 @@ class DataBase:
     def get_parser(self, id):
         return self.cur.execute("SELECT * FROM parsers WHERE id=?", (id,)).fetchone()
 
-    def add_parser(self, name, url=None, attributes=None, type=None, filepath=None, respath=None):
+    def add_parser(self, name, url=None, attributes=None, type=None, links=None, respath=None):
         self.cur.execute(
-            "INSERT INTO parsers (name, url, attributes, linkstype, filepath, respath)"
+            "INSERT INTO parsers (name, url, attributes, linkstype, links, respath)"
             " VALUES(?, ?, ?, ?, ?, ?)",
-            (name, url, attributes, type, filepath, respath,))
+            (name, url, attributes, type, links, respath,))
         self.con.commit()
         return self.get_lastrowid()
 
@@ -43,14 +43,14 @@ class DataBase:
         self.cur.execute("DELETE FROM parsers WHERE id=" + str(id))
         self.con.commit()
 
-    def update_parser(self, id, name=None, url=None, attributes=None, type=None, filepath=None,
+    def update_parser(self, id, name=None, url=None, attributes=None, type=None, links=None,
                       respath=None):
         self.cur.execute(
             ("UPDATE parsers SET " + ("name=?, " if name else "") + ("url=?, " if url else "") + (
                 "attributes=?, " if attributes else "") + ("linkstype=?, " if type else "") + (
-                 "filepath=?, " if filepath else "") + ("respath=?, " if respath else "") +
+                 "links=?, " if links else "") + ("respath=?, " if respath else "") +
              " WHERE id=?").replace(",  WHERE", "WHERE"),
-            tuple(filter(lambda x: x, (name, url, attributes, type, filepath, respath, id,))))
+            tuple(filter(lambda x: x, (name, url, attributes, type, links, respath, id,))))
         self.con.commit()
 
     def get_lastrowid(self):

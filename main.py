@@ -15,6 +15,8 @@ def main():
     app.setFont(roboto)
     if not os.path.exists("./results"):
         os.mkdir('./results')
+    if not os.path.exists("./sitemaps"):
+        os.mkdir('./sitemaps')
     ex = MainWindow("./parsers.db", "./results")
     ex.show()
     sys.exit(app.exec())

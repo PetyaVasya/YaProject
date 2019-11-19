@@ -1,4 +1,7 @@
-from PyQt5.QtGui import QIcon, QPainter, QFontDatabase, QFont, QPixmap, QFontMetrics
+import math
+
+from PyQt5.QtGui import QIcon, QPainter, QFontDatabase, QFont, QPixmap, QFontMetrics, QPalette, \
+    QPen, QBrush, QColor
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QHBoxLayout, QVBoxLayout, QSizePolicy, QLineEdit, QButtonGroup, QGridLayout, QTextBrowser, \
@@ -59,8 +62,6 @@ class ParsersList(QWidget):
             self.delete_buttons.addButton(new.delete, key)
             self.parse_buttons.addButton(new.run, key)
             self.layout_v.addWidget(new, alignment=Qt.AlignTop)
-
-        # tell painter to use your font:
 
         self.createNewButton = QPushButton("+", self)
         # self.createNewButton.setFont(your_ttf_font)
@@ -223,6 +224,9 @@ class ParserElement(QWidget):
     def update_progress(self, value):
         self.progress_changed.emit(value)
 
+    def set_name(self, name):
+        self.title.setText(name)
+
 
 class ParserEdit(QWidget):
     thing_changed = pyqtSignal([int], [int, int, QWidget])
@@ -321,10 +325,20 @@ class ParserEdit(QWidget):
             self.name_edit.setText(self.q_parser.name)
             self.url_edit.setText(self.q_parser.url)
             self.open_url(self.q_parser.url)
-            self.links_from_file(self.q_parser.filepath)
-            self.fname = self.q_parser.filepath
+            self.res = self.q_parser.links
+            self.links_type = self.q_parser.type
+            if self.links_type == "File":
+                self.links_from_file(self.q_parser.links)
+            elif self.links_type == "Links":
+                self.links = tuple(filter(lambda x: x, set(
+                    self.res.strip().strip("\n").strip("\x00").split("\n"))))
+                self.set_links(self.links)
+            elif self.links_type == "Sitemap":
+                pass
         else:
-            self.fname = self.q_parser.filepath
+            self.res = ""
+            self.links_type = ""
+        print(self.links_type)
 
     def get_name(self):
         return self.name_edit.text()
@@ -429,7 +443,7 @@ class ParserEdit(QWidget):
             self.changed[
                 self.attributes_changed] = self.get_attributes() != self.q_parser.attributes
         elif args[0] == self.links_changed:
-            self.changed[self.links_changed] = self.fname != self.q_parser.filepath
+            self.changed[self.links_changed] = self.res != self.q_parser.links
 
     def check_error(self, type):
         if type == self.name_changed:
@@ -451,13 +465,13 @@ class ParserEdit(QWidget):
             self.errors[self.incorrect_url_error] = True
 
     def upload_links(self):
-        self.upload_window = UploadLinksWidget(self, "File", self.fname)
+        self.upload_window = UploadLinksWidget(self, self.links_type, self.res)
         if self.upload_window.exec_():
-            self.link_type, self.res = self.upload_window.get_result()
-            if self.link_type == "File":
+            self.links_type, self.res = self.upload_window.get_result()
+            if self.links_type == "File":
                 self.links_from_file(self.res)
-            elif self.link_type == "Links":
-                self.links = self.res.split("\n")
+            elif self.links_type == "Links":
+                self.links = tuple(filter(lambda x: x, set(self.res.strip().strip("\n").strip("\x00").split("\n"))))
                 self.set_links(self.links)
 
         # self.upload_window.show()
@@ -467,13 +481,16 @@ class ParserEdit(QWidget):
             with open(file, "r") as links:
                 self.links = links.read().split("\n")
                 self.set_links(self.links)
-                self.url_edit.setText(self.links[0])
                 # self.links_box.setEditable(False)
                 # self.url_edit.setEnabled(False)
 
     def set_links(self, links):
-        self.links_box.clear()
-        self.links_box.addItems(self.links)
+        if links:
+            self.url_edit.setText(links[0])
+            self.links_box.clear()
+            self.links_box.addItems(links)
+            print(links)
+
 
 
 class FieldsPull(QWidget):
@@ -712,14 +729,14 @@ class FieldEdit(QWidget):
 
 class QParser:
 
-    def __init__(self, id=None, name="", url="", attributes=dict(), type="", filepath="",
+    def __init__(self, id=None, name="", url="", attributes=dict(), type="", links="",
                  element=None):
         self.id = id
         self.name = name
         self.url = url
         self.attributes = attributes
         self.type = type
-        self.filepath = filepath
+        self.links = links
         self.element = element
 
     def add_attribute(self, name, value):
@@ -778,12 +795,15 @@ class UploadLinksWidget(QDialog):
             self.type = type
         else:
             self.type = ""
-        self.opened_file = CutLabel(file if file else "Choose file")
+        self.opened_file = CutLabel()
+        self.opened_file.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.btn_open_file = QPushButton("Open")
+        self.btn_open_file.clicked.connect(self.get_file)
         self.file_layout.addWidget(self.opened_file, stretch=90)
         self.file_layout.addWidget(self.btn_open_file, stretch=10)
         self.links_layout.addWidget(self.links_edit, stretch=90)
         self.links_layout.addLayout(self.file_layout, stretch=10)
+        self.opened_file.setText(file if file else "Choose file")
 
         self.sitemap_layout = QVBoxLayout(self)
         self.base_url = QLineEdit(self)
@@ -811,6 +831,7 @@ class UploadLinksWidget(QDialog):
         self.body.addLayout(self.bar)
         # self.statusBar().addWidget(QPushButton("OK", self))
         # self.statusBar().addWidget(QPushButton("Cancel", self))
+        self.setFixedSize(300, 300)
 
     def change_interface(self, btn):
         print(self.btn_group.id(btn))
@@ -843,9 +864,32 @@ class CutLabel(QLabel):
         painter = QPainter(self)
 
         metrics = QFontMetrics(self.font())
-        elided = metrics.elidedText(self.text(), Qt.ElideRight, self.width())
+        elided = metrics.elidedText(self.text(), Qt.ElideLeft, self.width())
 
         painter.drawText(self.rect(), self.alignment(), elided)
+
+
+class SitemapWindow(QWidget):
+
+    def __init__(self, mpath=None):
+        super().__init__()
+        self.initUI(mpath)
+
+    def initUI(self, mpath):
+        self.body = QVBoxLayout(self)
+        self.setLayout(self.body)
+        self.tree = QTreeWidget(self)
+        self.body.addWidget(self.tree)
+        if mpath:
+            self.unparse_tree(mpath)
+        else:
+            self.tree.hide()
+
+    def unparse_tree(self, path):
+        pass
+
+    def grab_links(self, url):
+        pass
 
 
 def normalize_widget(widget):

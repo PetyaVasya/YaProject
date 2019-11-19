@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLCDNumber, QLab
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEngineProfile, QWebEnginePage
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, QUrl, Qt
 from QParser import QParser, ParserEdit, ParsersList
+from Tools import StoppableThread
 from parser import Parser
 from DataBase import DataBase
 import re
@@ -113,7 +114,7 @@ class MainWindow(QMainWindow):
         self.parsers_list.createNewButton.clicked.connect(self.open_parser_edit)
         self.parsers_list.createNewButton.setParent(self.parsers_scroll)
         for q_parser in map(lambda x: self.parsers_list.layout_v.itemAt(x).widget(),
-                            range(self.parsers_list.layout_v.count() - 1)):
+                            range(self.parsers_list.layout_v.count())):
             # print(q_parser.name)
             q_parser.clicked[str, int].connect(self.open_parser_edit)
             # q_parser.element.clicked.emit("")
@@ -203,7 +204,7 @@ class MainWindow(QMainWindow):
             self.main.setCurrentIndex(self.main.count() - 1)
             # self.setCentralWidget(parser_edit)
 
-    def save_changes_dialog(self, parser_edit, cancel = False):
+    def save_changes_dialog(self, parser_edit, cancel=False):
         if not any(parser_edit.changed.values()):
             return True
         res = QMessageBox.question(self, "Saving changes", "Save changes?", (QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel) if cancel else (QMessageBox.Yes | QMessageBox.No), QMessageBox.Yes)
@@ -213,25 +214,30 @@ class MainWindow(QMainWindow):
             name = parser_edit.get_name()
             url = parser_edit.get_url()
             if parser_edit.new:
-                id = self.db.add_parser(name, url, self.formated_attributes(attrs))
+                id = self.db.add_parser(name, url, self.formated_attributes(attrs), parser_edit.links_type,
+                                          parser_edit.res)
                 parser_edit.q_parser.id = id
                 parser_edit.new = False
+                new = self.parsers_list.add_element(name, id)
+                new.clicked[str, int].connect(self.open_parser_edit)
             else:
                 self.db.update_parser(parser_edit.q_parser.id, name,
                                       url, self.formated_attributes(attrs),
-                                      "File" if parser_edit.fname else None,
-                                      parser_edit.fname)
+                                      parser_edit.links_type,
+                                          parser_edit.res)
                 id = parser_edit.q_parser.id
+                self.parsers_list.get_element(id).set_name(name)
             parser_edit.q_parser.name = name
             parser_edit.q_parser.url = url
             parser_edit.q_parser.attributes = attrs
-            if parser_edit.fname:
-                parser_edit.q_parser.type = "File"
-                parser_edit.q_parser.filepath = parser_edit.fname
+            parser_edit.q_parser.type = parser_edit.links_type
+            parser_edit.q_parser.links = parser_edit.res
+            for k in parser_edit.changed.keys():
+                parser_edit.changed[k] = False
             self.apply_button.setEnabled(False)
             return QMessageBox.Yes if cancel else True
         else:
-            return (QMessageBox.Cancel if res == QMessageBox.Cancel else QMessageBox.No) if cancel else QMessageBox.No
+            return (QMessageBox.Cancel if res == QMessageBox.Cancel else QMessageBox.No) if cancel else False
 
     def finalEditAction(self, btn):
         parser_edit = self.main.currentWidget()
@@ -256,17 +262,18 @@ class MainWindow(QMainWindow):
                     self.db.update_parser(parser_edit.q_parser.id, parser_edit.get_name(),
                                           parser_edit.get_url(), self.formated_attributes(
                             parser_edit.get_attributes()),
-                                          "File" if parser_edit.fname else None,
-                                          parser_edit.fname)
+                                          parser_edit.links_type,
+                                          parser_edit.res)
                     # parser_edit.q_parser.name = parser_edit.get_name()
                     id = parser_edit.get_id()
+                    self.parsers_list.get_element(id).set_name(parser_edit.get_name())
 
                 else:
 
                     attrs = self.formated_attributes(parser_edit.get_attributes())
                     id = self.db.add_parser(parser_edit.get_name(), parser_edit.get_url(),
-                                       attrs, "File" if parser_edit.fname else None,
-                                       parser_edit.fname)
+                                       attrs, parser_edit.links_type,
+                                          parser_edit.res)
                     # self.parsers_list.q_parsers[self.db.get_lastrowid()] = QParser(
                     #     self.db.get_lastrowid(),
                     #     parser_edit.get_name(), parser_edit.get_url(), attrs)
@@ -287,24 +294,29 @@ class MainWindow(QMainWindow):
                     id = self.db.add_parser(name, url, attrs)
                     parser_edit.q_parser.id = id
                     parser_edit.new = False
+                    new = self.parsers_list.add_element(name, id)
+                    new.clicked[str, int].connect(self.open_parser_edit)
                 else:
-                    self.db.update_parser(parser_edit.q_parser.id, name,
+                    id = parser_edit.q_parser.id
+                    self.db.update_parser(id, name,
                                           url, self.formated_attributes(attrs),
-                                          "File" if parser_edit.fname else None,
-                                          parser_edit.fname)
+                                          parser_edit.links_type,
+                                          parser_edit.res)
+                    self.parsers_list.get_element(id).set_name(name)
                 parser_edit.q_parser.name = name
                 parser_edit.q_parser.url = url
                 parser_edit.q_parser.attributes = attrs
-                if parser_edit.fname:
-                    parser_edit.q_parser.type = "File"
-                    parser_edit.q_parser.filepath = parser_edit.fname
+                parser_edit.q_parser.type = parser_edit.links_type
+                parser_edit.q_parser.links = parser_edit.res
+                for k in parser_edit.changed.keys():
+                    parser_edit.changed[k] = False
                 # self.q_parsers.append(QParser(parser_edit.name_edit.toPlainText()))
                 self.setWindowTitle(parser_edit.get_name())
                 self.apply_button.setEnabled(False)
 
             elif btn.text() == "Test":
                 if self.save_changes_dialog(parser_edit):
-
+                    attrs = parser_edit.get_attributes()
                     id = parser_edit.get_id()
                     # print(list(map(list, attrs.values())))
                     parser_edit.create_log_widget()
@@ -439,35 +451,3 @@ class MainWindow(QMainWindow):
 #     sleep(randrange(1, 5))
 #     parser = args[-1]
 #     return [args[0]] + parser.parse_url(*args[:-1])
-
-
-class StoppableThread(Thread):
-
-    def __init__(self, *args, **keywords):
-        Thread.__init__(self, *args, **keywords)
-        self.killed = False
-
-    def start(self):
-        self.__run_backup = self.run
-        self.run = self.__run
-        Thread.start(self)
-
-    def __run(self):
-        sys.settrace(self.globaltrace)
-        self.__run_backup()
-        self.run = self.__run_backup
-
-    def globaltrace(self, frame, event, arg):
-        if event == 'call':
-            return self.localtrace
-        else:
-            return None
-
-    def localtrace(self, frame, event, arg):
-        if self.killed:
-            if event == 'line':
-                raise SystemExit()
-        return self.localtrace
-
-    def kill(self):
-        self.killed = True
