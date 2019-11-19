@@ -5,6 +5,10 @@ import re
 
 
 class Parser:
+    """
+        Proxie:
+        After 21:00
+    """
 
     def __init__(self, proxies=[]):
         self.proxies = {proxie: 0 for proxie in proxies}
@@ -49,13 +53,3 @@ class Parser:
 
     def parse_urls(self, links, fields):
         return [self.parse_url(self.get_html(url), fields) for url in links]
-
-
-if __name__ == "__main__":
-    # p = Parser(["https://194.226.34.132:5555"])
-    p = Parser()
-    html = p.get_html(
-        "https://www.avito.ru/perm/tovary_dlya_kompyutera/novaya_akb_dlya_noutbuka_hp_g6_166432")
-    print(html)
-    # print(p.get_fields(html))
-    # # print(html)

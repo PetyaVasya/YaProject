@@ -1,12 +1,9 @@
-import math
-
-from PyQt5.QtGui import QIcon, QPainter, QFontDatabase, QFont, QPixmap, QFontMetrics, QPalette, \
-    QPen, QBrush, QColor
+from PyQt5.QtGui import QPainter, QPixmap, QFontMetrics
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QHBoxLayout, QVBoxLayout, QSizePolicy, QLineEdit, QButtonGroup, QGridLayout, QTextBrowser, \
     QComboBox, QScrollArea, QFileDialog, QStyle, QProgressBar, QStyleOption, QRadioButton, \
-    QStackedWidget, QMainWindow, QTextEdit, QTreeWidget, QDialog, QStatusBar
+    QStackedWidget, QTextEdit, QTreeWidget, QDialog, QMessageBox
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QUrl, QEvent
 import requests
 import re
@@ -19,6 +16,9 @@ class WebEnginePage(QWebEnginePage):
         if navType == QWebEnginePage.NavigationTypeTyped:
             return True
         return False
+
+
+# Класс первой страницы, отображает список созданных парсеров
 
 
 class ParsersList(QWidget):
@@ -37,13 +37,18 @@ class ParsersList(QWidget):
         s.drawPrimitive(QStyle.PE_Widget, opt, p, self)
 
     def move_buttons(self):
+        """
+        Перемещает кнопки в при resize
+        :return:
+        """
         ph = self.parent().height()
         pw = self.parent().width()
         px = self.parent().geometry().x()
         py = self.parent().geometry().y()
         dw = self.createNewButton.maximumWidth()
         dh = self.createNewButton.maximumHeight()
-        self.createNewButton.setGeometry(px + pw - dw - 30, py + ph - dh - 21 - min(29, (ph / 8)), dw, dh)
+        self.createNewButton.setGeometry(px + pw - dw - 30, py + ph - dh - 21 - min(29, (ph / 8)),
+                                         dw, dh)
         for i in self.get_elements():
             i.move_delete()
 
@@ -58,31 +63,28 @@ class ParsersList(QWidget):
         """)
         self.layout_v = QVBoxLayout(self)
         for key, value in self.q_parsers.items():
-            new = ParserElement(name=value[0], id=key, respath=value[1], parent=self)
+            new = ParserElement(name=value[0], id_p=key, respath=value[1], parent=self)
             self.delete_buttons.addButton(new.delete, key)
             self.parse_buttons.addButton(new.run, key)
             self.layout_v.addWidget(new, alignment=Qt.AlignTop)
 
         self.createNewButton = QPushButton("+", self)
-        # self.createNewButton.setFont(your_ttf_font)
-        self.createNewButton.setStyleSheet("position:relative;top:100px;background-color: #03DAC5; border-radius:30px; color:black; font-size: 26px;")
-        # self.createNewButton.move(300, 300)
-        # self.createNewButton.setParent(self)
+        self.createNewButton.setStyleSheet('''position:relative;top:100px;background-color: #03DAC5;
+         border-radius:30px; color:black; font-size: 26px;''')
         self.createNewButton.setMaximumWidth(60)
         self.createNewButton.setMaximumHeight(60)
         self.createNewButton.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
         self.move_buttons()
-        # self.layout_v.addWidget(self.createNewButton, alignment=Qt.AlignTop)
 
-    def get_element(self, id):
+    def get_element(self, id_p):
         return next((self.layout_v.itemAt(i).widget() for i in range(self.layout_v.count()) if
-                     self.layout_v.itemAt(i).widget().id == id), None)
+                     self.layout_v.itemAt(i).widget().id_p == id_p), None)
 
-    def add_element(self, name, id, respath=None):
-        new = ParserElement(name=name, id=id, respath=respath, parent=self)
-        self.delete_buttons.addButton(new.delete, id)
-        self.parse_buttons.addButton(new.run, id)
-        self.layout_v.insertWidget(self.layout_v.count() - 1,new, alignment=Qt.AlignTop)
+    def add_element(self, name, id_p, respath=None):
+        new = ParserElement(name=name, id_p=id_p, respath=respath, parent=self)
+        self.delete_buttons.addButton(new.delete, id_p)
+        self.parse_buttons.addButton(new.run, id_p)
+        self.layout_v.insertWidget(self.layout_v.count() - 1, new, alignment=Qt.AlignTop)
         return new
 
     def get_elements(self):
@@ -93,10 +95,10 @@ class ParserElement(QWidget):
     clicked = pyqtSignal([str], [str, int])
     progress_changed = pyqtSignal(int)
 
-    def __init__(self, name, id=None, respath=None, execute=False, parent=None):
+    def __init__(self, name, id_p=None, respath=None, execute=False, parent=None):
         super(ParserElement, self).__init__(parent)
         self.name = name
-        self.id = id
+        self.id_p = id_p
         self.fpath = respath
         self.execute = execute
         self.run_vars = ["SP_MediaPlay", "SP_MediaPause"]
@@ -111,10 +113,14 @@ class ParserElement(QWidget):
         s.drawPrimitive(QStyle.PE_Widget, opt, p, self)
 
     def initUI(self):
+
+        # styles
+
         btn_css = '''border-radius:5px;font-size:24px;background-color:#BB86FC;
         '''
         btn_css2 = '''border-radius:15px;font-size:16px;background-color:white;
                 '''
+
         self.setMinimumHeight(200)
         self.setStyleSheet("""
         ParserElement {
@@ -122,13 +128,6 @@ class ParserElement(QWidget):
             border-radius: 20px;
             }
         """)
-
-        # self.setStyleSheet('''border-radius:50px; background-color:white;''')
-        # self.setAutoFillBackground(True)
-        # a = self.palette()
-        # a.setColor(self.backgroundRole(), Qt.white)
-        # self.setPalette(a)
-        # self.st
         self.element = QHBoxLayout(self)
         self.pixmap = QPixmap("img.png")
         self.img = QLabel(self)
@@ -154,7 +153,6 @@ class ParserElement(QWidget):
         self.element.addWidget(self.result, stretch=10)
         self.run = QPushButton(self)
         self.run.setStyleSheet(btn_css)
-        # self.run.clicked.connect(self.run_stop)
         self.run.setIcon(self.style().standardIcon(getattr(QStyle, self.run_vars[self.execute])))
         self.element.addWidget(self.run, stretch=10)
         self.delete = QPushButton("X", self)
@@ -162,9 +160,9 @@ class ParserElement(QWidget):
         self.setContentsMargins(0, 0, 0, 0)
         self.delete.setFixedWidth(30)
         self.delete.setFixedHeight(30)
-        self.delete.setGeometry(self.width() - self.delete.width(), 0, self.delete.width(), self.delete.height())
+        self.delete.setGeometry(self.width() - self.delete.width(), 0, self.delete.width(),
+                                self.delete.height())
         self.delete.setStyleSheet(btn_css2)
-        # self.element.addWidget(self.delete, stretch=10)
 
     def move_delete(self):
         self.delete.setGeometry(self.width() - self.delete.width(), 0, self.delete.width(),
@@ -178,8 +176,8 @@ class ParserElement(QWidget):
             QTimer.singleShot(QApplication.instance().doubleClickInterval(),
                               self.performSingleClickAction)
         else:
-            if self.id:
-                self.clicked[str, int].emit(self.last, self.id)
+            if self.id_p:
+                self.clicked[str, int].emit(self.last, self.id_p)
             else:
                 self.clicked[str].emit(self.last)
 
@@ -188,8 +186,8 @@ class ParserElement(QWidget):
 
     def performSingleClickAction(self):
         if self.last == "Click":
-            if self.id:
-                self.clicked[str, int].emit(self.last, self.id)
+            if self.id_p:
+                self.clicked[str, int].emit(self.last, self.id_p)
             else:
                 self.clicked[str].emit(self.last)
 
@@ -252,41 +250,28 @@ class ParserEdit(QWidget):
     def initUI(self):
         self.thing_changed.connect(self.check_changes)
         self.layout_v = QVBoxLayout(self)
-        # self.setLayout(self.layout_v)
         self.top_l = QGridLayout(self)
-        # self.top_l.setColumnStretch(1, 20)
-        # self.top_l.setColumnStretch(2, 80)
-        # self.top_l.setRowStretch(1, 10)
-        # self.top_l.setRowStretch(2, 10)
         self.name_edit = QLineEdit(self)
-        # self.name_edit.setMaximumHeight(30)
         self.name_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.name_edit.editingFinished.connect(lambda: self.check_error(self.name_changed))
         self.name_edit.textChanged.connect(lambda: self.send_changed(self.name_changed))
-        # self.url_layout = QHBoxLayout(self)
-        # self.top_l.add
         self.url_load = QPushButton("Load", self)
         self.url_edit = QLineEdit(self)
         self.links_box = QComboBox(self)
         self.links_box.setLineEdit(self.url_edit)
         self.links_box.currentIndexChanged.connect(self.open_browser)
         self.url_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        # self.url_edit.editingFinished.connect(self.open_browser)
         self.url_load.clicked.connect(self.open_browser)
         self.url_edit.textChanged.connect(lambda: self.send_changed(self.url_changed))
-        # self.url_edit.setMaximumHeight(30)
         self.btn_upload = QPushButton("Upload", self)
-        # self.upload_links.clicked.connect(self.get_file)
         self.btn_upload.clicked.connect(self.upload_links)
         self.top_l.addWidget(QLabel("Name:"), 0, 0)
         self.top_l.addWidget(self.name_edit, 0, 1)
         self.top_l.addWidget(QLabel("Url:"), 1, 0)
         self.top_l.addWidget(self.btn_upload, 0, 2)
-        # self.top_l.addWidget(self.url_edit, 1, 1)
         self.top_l.addWidget(self.links_box, 1, 1)
         self.top_l.addWidget(self.url_load, 1, 2)
         self.body = QHBoxLayout(self)
-        # self.attribute_fields = [FieldEdit(self)]
         self.fields_area = QScrollArea(self)
         self.fields_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.fields_area.setWidgetResizable(True)
@@ -301,21 +286,16 @@ class ParserEdit(QWidget):
             lambda: self.errors.__setitem__(self.attribute_error, True))
         self.fields.errors_fixed.connect(
             lambda: self.errors.__setitem__(self.attribute_error, False))
-        # self.fields.error_created[int, QWidget].connect(lambda x, y: self.errors.setdefault(y, set()).add(x))
-        # self.fields.error_fixed[int, QWidget].connect(lambda x, y: self.errors[y].remove(x))
         self.fields_area.setWidget(self.fields)
         self.body.addWidget(self.fields_area, Qt.AlignTop)
         self.body.setStretch(1, 40)
-        # self.body.addWidget(self.attribute_fields[0], 40, Qt.AlignTop)
         self.view = QWebEngineView(self)
         self._glwidget = self.view
         profile = QWebEngineProfile.defaultProfile()
-        # profile.setHttpUserAgent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36")
         page = WebEnginePage(profile, self.view)
         self.view.setPage(page)
         self.view.installEventFilter(self)
         self.view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # self.view.loadFinished.connect(lambda: self.view.grab().scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation).save("img.png", b'PNG'))
         self.body.addWidget(self.view, 60)
         self.layout_v.addLayout(self.top_l, 10)
         self.layout_v.addLayout(self.body, 90)
@@ -326,7 +306,7 @@ class ParserEdit(QWidget):
             self.url_edit.setText(self.q_parser.url)
             self.open_url(self.q_parser.url)
             self.res = self.q_parser.links
-            self.links_type = self.q_parser.type
+            self.links_type = self.q_parser.type_p
             if self.links_type == "File":
                 self.links_from_file(self.q_parser.links)
             elif self.links_type == "Links":
@@ -347,7 +327,7 @@ class ParserEdit(QWidget):
         return self.url_edit.text()
 
     def get_id(self):
-        return self.q_parser.id
+        return self.q_parser.id_p
 
     def get_attributes(self):
         return self.fields.get_attributes()
@@ -386,6 +366,9 @@ class ParserEdit(QWidget):
         elif (event.type() == QEvent.MouseButtonPress and
               source is self._glwidget):
             print(event.pos())
+
+            # Функция для генерации CSS селектора по позиции элемента
+
             func = '''
             function cssSelectorByPos(x, y){
                 var element = document.elementFromPoint(x, y);
@@ -399,9 +382,6 @@ class ParserEdit(QWidget):
                 func + 'cssSelectorByPos({}, {});'.format(event.pos().x() * 2,
                                                           event.pos().y() * 2),
                 self.js_callback)
-            # self.view.page().runJavaScript(
-            #     "pageYOffset.toString() + ' ' + " + str(event.pos().y()),
-            #     self.js_callback)
         return super().eventFilter(source, event)
 
     def js_callback(self, result):
@@ -421,7 +401,6 @@ class ParserEdit(QWidget):
             self.logs = QTextBrowser(self)
             self.logs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             self.layout_v.addWidget(self.logs, 20, Qt.AlignBottom)
-            # sys.stdout.write = lambda x: self.logs.append(str(x))
         else:
             self.logs.clear()
 
@@ -434,6 +413,12 @@ class ParserEdit(QWidget):
             self.logs.clear()
 
     def check_changes(self, *args):
+        """
+        Проверяет изменения дочерних элементов для обработки сохранения.
+        :param args:
+        :return:
+        """
+
         self.check_error(args[0])
         if args[0] == self.name_changed:
             self.changed[self.name_changed] = self.get_name() != self.q_parser.name
@@ -445,44 +430,46 @@ class ParserEdit(QWidget):
         elif args[0] == self.links_changed:
             self.changed[self.links_changed] = self.res != self.q_parser.links
 
-    def check_error(self, type):
-        if type == self.name_changed:
+    def check_error(self, type_p):
+        if type_p == self.name_changed:
             if self.get_name():
                 normalize_widget(self.name_edit)
                 self.errors[self.name_empty_error] = False
             else:
                 self.show_error(self.name_empty_error)
 
-    def send_changed(self, type):
-        self.thing_changed.emit(type)
+    def send_changed(self, type_p):
+        self.thing_changed.emit(type_p)
 
-    def show_error(self, type):
-        if type == self.name_empty_error:
+    def show_error(self, type_p):
+        if type_p == self.name_empty_error:
             errorize_widget(self.name_edit)
             self.errors[self.name_empty_error] = True
-        elif type == self.incorrect_url_error:
+        elif type_p == self.incorrect_url_error:
             errorize_widget(self.url_edit)
             self.errors[self.incorrect_url_error] = True
 
     def upload_links(self):
+        """
+        Вызывает окно для выбора споосба указания ссылок для парсинга. Загружает полученные ссылки
+        в список.
+        :return:
+        """
         self.upload_window = UploadLinksWidget(self, self.links_type, self.res)
         if self.upload_window.exec_():
             self.links_type, self.res = self.upload_window.get_result()
             if self.links_type == "File":
                 self.links_from_file(self.res)
             elif self.links_type == "Links":
-                self.links = tuple(filter(lambda x: x, set(self.res.strip().strip("\n").strip("\x00").split("\n"))))
+                self.links = tuple(filter(lambda x: x, set(
+                    self.res.strip().strip("\n").strip("\x00").split("\n"))))
                 self.set_links(self.links)
-
-        # self.upload_window.show()
 
     def links_from_file(self, file):
         if file:
             with open(file, "r") as links:
                 self.links = links.read().split("\n")
                 self.set_links(self.links)
-                # self.links_box.setEditable(False)
-                # self.url_edit.setEnabled(False)
 
     def set_links(self, links):
         if links:
@@ -492,8 +479,10 @@ class ParserEdit(QWidget):
             print(links)
 
 
-
 class FieldsPull(QWidget):
+    """
+    Класс, отвечающий за поля атрибутов для более простого взаимодействия с ними.
+    """
     field_changed = pyqtSignal(int, QWidget)
     error_created = pyqtSignal(int, QWidget)
     errors_fixed = pyqtSignal()
@@ -515,17 +504,12 @@ class FieldsPull(QWidget):
         self.field_changed[int, QWidget].connect(self.check_error)
         self.error_created[int, QWidget].connect(
             lambda x, y: self.errors.setdefault(y, set()).add(x))
-        # self.error_fixed[int, QWidget].connect(lambda x, y: self.errors[y].remove(x))
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(0, 0, 0, 0)
         attrs = tuple(self.attributes.items())
         self.create_field()
         for attribute in attrs:
             self.create_field(attribute)
-            # self.get_last_widget().set_values(attribute[0], *attribute[1])
-        #     self.create_field(attribute)
-        # if attrs:
-        #     self.create_field()
 
     def get_last_widget(self):
         if self.body.count():
@@ -535,9 +519,9 @@ class FieldsPull(QWidget):
     def children_count(self):
         return self.body.count()
 
-    def get_widget(self, id):
+    def get_widget(self, id_p):
         if self.body.count():
-            return self.body.itemAt(id).widget()
+            return self.body.itemAt(id_p).widget()
         return None
 
     def get_all_widgets(self):
@@ -557,11 +541,9 @@ class FieldsPull(QWidget):
         else:
             new = FieldEdit(values=attribute, parent=self)
             self.body.addWidget(new, alignment=Qt.AlignTop)
-            # new.key.textEdited.connect(self.thing_changed)
             new.edit_finished[QWidget].connect(self.create_space)
             new.edit_changed[int, QWidget].connect(self.field_change)
             new.key.installEventFilter(self.e_filter)
-            # new.value.textEdited.connect(self.field_change)
             new.value.installEventFilter(self.e_filter)
             return new
 
@@ -569,53 +551,53 @@ class FieldsPull(QWidget):
         last.edit_finished.disconnect(self.create_space)
         return self.create_field()
 
-    def field_change(self, type, field):
+    def field_change(self, type_p, field):
         print("f_changed")
-        self.field_changed.emit(type, field)
+        self.field_changed.emit(type_p, field)
 
     def exists_key(self, key):
         if self.get_keys().count(key) > 1:
             return True
         return False
 
-    def check_error(self, type, field):
-        if type == FieldEdit.key_changed:
+    def check_error(self, type_p, field):
+        if type_p == FieldEdit.key_changed:
             if self.exists_key(field.get_key()):
                 self.show_error(self.key_exists_error, field)
             else:
                 normalize_widget(field.key)
-                self.remove_error(type, field)
-        elif type == FieldEdit.value_changed:
+                self.remove_error(type_p, field)
+        elif type_p == FieldEdit.value_changed:
             if field.get_value():
                 normalize_widget(field.value)
-                self.remove_error(type, field)
+                self.remove_error(type_p, field)
             else:
                 self.show_error(self.value_empty_error, field)
-        elif type == FieldEdit.type_changed:
+        elif type_p == FieldEdit.type_changed:
             if field.get_type():
                 normalize_widget(field.value_type)
-                self.remove_error(type, field)
+                self.remove_error(type_p, field)
             else:
                 self.show_error(self.type_empty_error, field)
-        elif type == FieldEdit.field_deleted:
+        elif type_p == FieldEdit.field_deleted:
             if self.errors.get(field):
                 del self.errors[field]
                 if not self.errors:
                     self.errors_fixed.emit()
 
-    def show_error(self, type, field):
-        if type == self.type_empty_error:
+    def show_error(self, type_p, field):
+        if type_p == self.type_empty_error:
             errorize_widget(field.value_type)
-        elif type == self.value_empty_error:
+        elif type_p == self.value_empty_error:
             errorize_widget(field.value)
-        elif type == self.key_exists_error:
+        elif type_p == self.key_exists_error:
             errorize_widget(field.key)
-        self.error_created[int, QWidget].emit(type, field)
+        self.error_created[int, QWidget].emit(type_p, field)
 
-    def remove_error(self, type, field):
+    def remove_error(self, type_p, field):
         if self.errors.get(field):
             if len(self.errors[field]) > 1:
-                self.errors[field].remove(type)
+                self.errors[field].remove(type_p)
             else:
                 self.errors.pop(field)
         if not self.errors:
@@ -623,6 +605,9 @@ class FieldsPull(QWidget):
 
 
 class FieldEdit(QWidget):
+    """
+    Атрибут. Класс группирующий несколько Edit полей для более простого взаимодействия с ними.
+    """
     edit_finished = pyqtSignal(QWidget)
     edit_changed = pyqtSignal(int, QWidget)
     key_changed = 1
@@ -670,13 +655,18 @@ class FieldEdit(QWidget):
     def get_item(self):
         return self.get_key(), (self.get_value(), self.get_type())
 
-    def set_values(self, key, value, type):
+    def set_values(self, key, value, type_p):
         self.send_finished()
         self.key.setText(key)
         self.value.setText(value)
-        self.value_type.setCurrentText(type)
+        self.value_type.setCurrentText(type_p)
 
     def init_after_edit(self):
+        """
+        Функция добавляющая "скрытые" изначально поля, которые будут пустыми до заполнения name или
+         value
+        :return:
+        """
         self.add_select_type_box()
         self.add_delete_btn()
         self.edit_finished.disconnect(self.init_after_edit)
@@ -718,9 +708,9 @@ class FieldEdit(QWidget):
         self.value_type.clear()
         self.value_type.addItems(vars)
 
-    def send_changed(self, type):
-        self.edit_changed[int, QWidget].emit(type, self)
-        if type == self.value_changed:
+    def send_changed(self, type_p):
+        self.edit_changed[int, QWidget].emit(type_p, self)
+        if type_p == self.value_changed:
             self.set_value_types()
 
     def send_finished(self):
@@ -728,14 +718,17 @@ class FieldEdit(QWidget):
 
 
 class QParser:
+    """
+    Класс испольщующийся для хранения последней сохранненой версии в ParseEdit.
+    """
 
-    def __init__(self, id=None, name="", url="", attributes=dict(), type="", links="",
+    def __init__(self, id_p=None, name="", url="", attributes=dict(), type_p="", links="",
                  element=None):
-        self.id = id
+        self.id_p = id_p
         self.name = name
         self.url = url
         self.attributes = attributes
-        self.type = type
+        self.type_p = type_p
         self.links = links
         self.element = element
 
@@ -754,16 +747,18 @@ class QParser:
 
 
 class UploadLinksWidget(QDialog):
+    """
+    Класс связанный с ParserEdit. Отвечающий за загрузку пользователем ссылком для парсинга.
+    """
 
     def __init__(self, parent=None, *args):
         super(UploadLinksWidget, self).__init__(parent)
         self.initUI(*args)
 
-    def initUI(self, type=None, data=None):
+    def initUI(self, type_p=None, data=None):
         self.setGeometry(300, 300, 300, 300)
         self.body = QVBoxLayout(self)
         self.main = QWidget()
-        # self.setCentralWidget(self.main)
         self.links_type_layout = QHBoxLayout(self)
         self.btn_group = QButtonGroup(self)
         self.btn_links = QRadioButton("Links", self)
@@ -785,16 +780,16 @@ class UploadLinksWidget(QDialog):
         self.file_layout = QHBoxLayout(self)
         file = None
         self.btn_links.setChecked(True)
-        if type:
-            if type == "Links":
+        if type_p:
+            if type_p == "Links":
                 self.links_edit.setText(data)
-            elif type == "File":
+            elif type_p == "File":
                 file = data
-            elif type == "Sitemap":
+            elif type_p == "Sitemap":
                 self.btn_sitemap.setChecked(True)
-            self.type = type
+            self.type_p = type_p
         else:
-            self.type = ""
+            self.type_p = ""
         self.opened_file = CutLabel()
         self.opened_file.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.btn_open_file = QPushButton("Open")
@@ -822,31 +817,33 @@ class UploadLinksWidget(QDialog):
 
         self.final.buttonClicked.connect(self.close_dialog)
         self.body.addWidget(self.interface, stretch=90)
-        # self.main.setLayout(self.body)
         self.setLayout(self.body)
         self.btn_group.buttonClicked.connect(self.change_interface)
         self.bar = QHBoxLayout(self)
         for btn in self.final.buttons():
             self.bar.addWidget(btn)
         self.body.addLayout(self.bar)
-        # self.statusBar().addWidget(QPushButton("OK", self))
-        # self.statusBar().addWidget(QPushButton("Cancel", self))
         self.setFixedSize(300, 300)
 
     def change_interface(self, btn):
-        print(self.btn_group.id(btn))
-        self.interface.setCurrentIndex(self.btn_group.id(btn))
+        id_p = self.btn_group.id(btn)
+        if id_p == 1:
+            QMessageBox.question(self, "After 21:00", "After 21:00", QMessageBox.Yes,
+                                 QMessageBox.Yes)
+            self.btn_group.button(0).setChecked(True)
+        else:
+            self.interface.setCurrentIndex(id_p)
 
     def get_file(self):
         self.res = QFileDialog.getOpenFileName(self, 'Выберите файл с ссылками', '')[0]
         if self.res:
             self.accept()
-            self.type = "File"
+            self.type_p = "File"
 
     def close_dialog(self, btn):
         if btn.text() == "OK":
-            self.type = self.btn_group.checkedButton().text()
-            if self.type == "Links":
+            self.type_p = self.btn_group.checkedButton().text()
+            if self.type_p == "Links":
                 self.res = self.links_edit.toPlainText()
             else:
                 pass
@@ -855,7 +852,7 @@ class UploadLinksWidget(QDialog):
             self.reject()
 
     def get_result(self):
-        return self.type, self.res
+        return self.type_p, self.res
 
 
 class CutLabel(QLabel):
@@ -870,6 +867,9 @@ class CutLabel(QLabel):
 
 
 class SitemapWindow(QWidget):
+    """
+        After 21:00
+    """
 
     def __init__(self, mpath=None):
         super().__init__()

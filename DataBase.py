@@ -28,29 +28,29 @@ class DataBase:
     def get_parsers(self):
         return self.cur.execute("SELECT * FROM parsers").fetchall()
 
-    def get_parser(self, id):
-        return self.cur.execute("SELECT * FROM parsers WHERE id=?", (id,)).fetchone()
+    def get_parser(self, id_p):
+        return self.cur.execute("SELECT * FROM parsers WHERE id=?", (id_p,)).fetchone()
 
-    def add_parser(self, name, url=None, attributes=None, type=None, links=None, respath=None):
+    def add_parser(self, name, url=None, attributes=None, type_p=None, links=None, respath=None):
         self.cur.execute(
             "INSERT INTO parsers (name, url, attributes, linkstype, links, respath)"
             " VALUES(?, ?, ?, ?, ?, ?)",
-            (name, url, attributes, type, links, respath,))
+            (name, url, attributes, type_p, links, respath,))
         self.con.commit()
         return self.get_lastrowid()
 
-    def delete_parser(self, id):
-        self.cur.execute("DELETE FROM parsers WHERE id=" + str(id))
+    def delete_parser(self, id_p):
+        self.cur.execute("DELETE FROM parsers WHERE id=" + str(id_p))
         self.con.commit()
 
-    def update_parser(self, id, name=None, url=None, attributes=None, type=None, links=None,
+    def update_parser(self, id_p, name=None, url=None, attributes=None, type_p=None, links=None,
                       respath=None):
         self.cur.execute(
             ("UPDATE parsers SET " + ("name=?, " if name else "") + ("url=?, " if url else "") + (
-                "attributes=?, " if attributes else "") + ("linkstype=?, " if type else "") + (
+                "attributes=?, " if attributes else "") + ("linkstype=?, " if type_p else "") + (
                  "links=?, " if links else "") + ("respath=?, " if respath else "") +
              " WHERE id=?").replace(",  WHERE", "WHERE"),
-            tuple(filter(lambda x: x, (name, url, attributes, type, links, respath, id,))))
+            tuple(filter(lambda x: x, (name, url, attributes, type_p, links, respath, id_p,))))
         self.con.commit()
 
     def get_lastrowid(self):

@@ -9,6 +9,9 @@ from PyQt5.QtWidgets import QWidget, QTreeWidgetItem
 
 
 class LoadingWidget(QWidget):
+    """
+    After 21:00
+    """
 
     def __init__(self, parent=None, text=""):
 
@@ -85,6 +88,10 @@ class StoppableThread(Thread):
 
 
 class XmlHandler(QtXml.QXmlDefaultHandler):
+    """
+        After 21:00
+    """
+
     def __init__(self, root):
         QtXml.QXmlDefaultHandler.__init__(self)
         self._root = root
