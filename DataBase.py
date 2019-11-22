@@ -45,6 +45,7 @@ class DataBase:
 
     def update_parser(self, id_p, name=None, url=None, attributes=None, type_p=None, links=None,
                       respath=None):
+        print((name, url, attributes, type_p, links, respath, id_p,))
         self.cur.execute(
             ("UPDATE parsers SET " + ("name=?, " if name else "") + ("url=?, " if url else "") + (
                 "attributes=?, " if attributes else "") + ("linkstype=?, " if type_p else "") + (

@@ -3,9 +3,9 @@ import sys
 from threading import Thread
 
 from PyQt5 import QtXml
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPalette, QBrush, QColor, QPainter, QPen
-from PyQt5.QtWidgets import QWidget, QTreeWidgetItem
+from PyQt5.QtWidgets import QWidget, QTreeWidgetItem, QTabBar, QTabWidget
 
 
 class LoadingWidget(QWidget):
@@ -125,3 +125,24 @@ class XmlHandler(QtXml.QXmlDefaultHandler):
     def characters(self, text):
         self._text += text
         return True
+
+
+class CustomBar(QTabBar):
+
+    def __init__(self, width, height, parent=None):
+        QTabBar.__init__(self, parent)
+        self.setFixedSize(width, height)
+
+    def tabSizeHint(self, i):
+        t = int(self.width() / self.count()) - 20
+        return QSize(t, self.height())
+
+
+class CustomTabWidget(QTabWidget):
+
+    def __init__(self, parent=None):
+        QTabWidget.__init__(self, parent)
+
+    def resizeEvent(self, event):
+        self.tabBar().setMinimumWidth(self.width())
+        QTabWidget.resizeEvent(self, event)

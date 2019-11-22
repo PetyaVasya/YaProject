@@ -13,7 +13,12 @@ def main():
     font_id = font_db.addApplicationFont("Roboto-Regular.ttf")
     roboto = QFont("Roboto-Regular")
     app.setFont(roboto)
-    ex = MainWindow("./parsers.db", "./results")
+
+    # ui = Ui_MainWindow()
+
+    ex = MainWindow(path="./parsers.db", res_path="./results")
+    # app.aboutToQuit.connect(ex.closeEvent)
+    # ui.setupUi(ex)
     ex.show()
     sys.exit(app.exec())
 

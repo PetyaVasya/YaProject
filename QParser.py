@@ -28,6 +28,11 @@ class ParsersList(QWidget):
         self.q_parsers = q_parsers
         self.initUI()
 
+    def resizeEvent(self, event):
+        for widget in self.get_elements():
+            widget.setFixedWidth(self.width() - 30)
+            widget.move_delete()
+
     def paintEvent(self, evt):
         super(ParsersList, self).paintEvent(evt)
         opt = QStyleOption()
@@ -58,7 +63,6 @@ class ParsersList(QWidget):
         self.setStyleSheet("""
         ParsersList {
             background-color: #121212;
-            border-radius: 20px;
             }
         """)
         self.layout_v = QVBoxLayout(self)
@@ -84,7 +88,7 @@ class ParsersList(QWidget):
         new = ParserElement(name=name, id_p=id_p, respath=respath, parent=self)
         self.delete_buttons.addButton(new.delete, id_p)
         self.parse_buttons.addButton(new.run, id_p)
-        self.layout_v.insertWidget(self.layout_v.count() - 1, new, alignment=Qt.AlignTop)
+        self.layout_v.addWidget(new, alignment=Qt.AlignTop)
         return new
 
     def get_elements(self):
@@ -118,7 +122,7 @@ class ParserElement(QWidget):
 
         btn_css = '''border-radius:5px;font-size:24px;background-color:#BB86FC;
         '''
-        btn_css2 = '''border-radius:15px;font-size:16px;background-color:white;
+        btn_css2 = '''border-radius:15px;font-size:24px;color:#FF0266;
                 '''
 
         self.setMinimumHeight(200)
@@ -248,6 +252,18 @@ class ParserEdit(QWidget):
         self.initUI()
 
     def initUI(self):
+        btn_css = '''border-radius:5px;
+                    font-size:14px;
+                    background:#03DAC5;
+                    color:black;
+                    width:50px;
+                    height:30px;
+                    '''
+        edits_css = '''
+                background-color:rgb(30, 30, 30);
+                border-radius:5px;
+                border: 1px solid white;
+                '''
         self.thing_changed.connect(self.check_changes)
         self.layout_v = QVBoxLayout(self)
         self.top_l = QGridLayout(self)
@@ -255,15 +271,22 @@ class ParserEdit(QWidget):
         self.name_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.name_edit.editingFinished.connect(lambda: self.check_error(self.name_changed))
         self.name_edit.textChanged.connect(lambda: self.send_changed(self.name_changed))
+        self.name_edit.setObjectName("name")
+        self.name_edit.setStyleSheet(edits_css)
         self.url_load = QPushButton("Load", self)
+        self.url_load.setStyleSheet(btn_css)
         self.url_edit = QLineEdit(self)
+        self.url_edit.setObjectName("url")
         self.links_box = QComboBox(self)
+        self.links_box.setObjectName("links")
         self.links_box.setLineEdit(self.url_edit)
         self.links_box.currentIndexChanged.connect(self.open_browser)
         self.url_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.links_box.setStyleSheet(edits_css)
         self.url_load.clicked.connect(self.open_browser)
         self.url_edit.textChanged.connect(lambda: self.send_changed(self.url_changed))
         self.btn_upload = QPushButton("Upload", self)
+        self.btn_upload.setStyleSheet(btn_css)
         self.btn_upload.clicked.connect(self.upload_links)
         self.top_l.addWidget(QLabel("Name:"), 0, 0)
         self.top_l.addWidget(self.name_edit, 0, 1)
@@ -277,7 +300,18 @@ class ParserEdit(QWidget):
         self.fields_area.setWidgetResizable(True)
         self.fields_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.fields_area.setContentsMargins(0, 0, 0, 0)
+        self.fields_area.setStyleSheet('''
+            QScrollArea>QWidget>QWidget{
+                background:#121212;
+            }
+            QScrollArea{
+                background:#121212;
+                border-radius: 5px;
+                border: 1px solid white;
+            }
+        ''')
         self.fields = FieldsPull(attributes=self.q_parser.attributes, parent=self, e_filter=self)
+        self.fields.setObjectName("attributes")
         self.fields.field_changed.connect(lambda: print("changes"))
         self.fields.installEventFilter(self)
         self.fields.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -303,8 +337,6 @@ class ParserEdit(QWidget):
         self.logs = None
         if self.q_parser:
             self.name_edit.setText(self.q_parser.name)
-            self.url_edit.setText(self.q_parser.url)
-            self.open_url(self.q_parser.url)
             self.res = self.q_parser.links
             self.links_type = self.q_parser.type_p
             if self.links_type == "File":
@@ -315,10 +347,16 @@ class ParserEdit(QWidget):
                 self.set_links(self.links)
             elif self.links_type == "Sitemap":
                 pass
+            self.url_edit.setText(self.q_parser.url)
+            self.open_url(self.q_parser.url)
         else:
             self.res = ""
             self.links_type = ""
         print(self.links_type)
+        self.setStyleSheet(
+            '''
+            color: white;
+             ''')
 
     def get_name(self):
         return self.name_edit.text()
@@ -418,7 +456,6 @@ class ParserEdit(QWidget):
         :param args:
         :return:
         """
-
         self.check_error(args[0])
         if args[0] == self.name_changed:
             self.changed[self.name_changed] = self.get_name() != self.q_parser.name
@@ -428,7 +465,12 @@ class ParserEdit(QWidget):
             self.changed[
                 self.attributes_changed] = self.get_attributes() != self.q_parser.attributes
         elif args[0] == self.links_changed:
-            self.changed[self.links_changed] = self.res != self.q_parser.links
+            if self.links_type == "File":
+                self.changed[self.links_changed] = self.res != self.q_parser.links
+            elif self.links_type == "Links":
+                self.changed[self.links_changed] = "\n".join(self.res) != self.q_parser.links
+            elif self.links_type == "Sitemap":
+                pass
 
     def check_error(self, type_p):
         if type_p == self.name_changed:
@@ -461,8 +503,9 @@ class ParserEdit(QWidget):
             if self.links_type == "File":
                 self.links_from_file(self.res)
             elif self.links_type == "Links":
+                self.res = self.res.strip().strip("\n").strip("\x00")
                 self.links = tuple(filter(lambda x: x, set(
-                    self.res.strip().strip("\n").strip("\x00").split("\n"))))
+                    self.res.split("\n"))))
                 self.set_links(self.links)
 
     def links_from_file(self, file):
@@ -545,6 +588,8 @@ class FieldsPull(QWidget):
             new.edit_changed[int, QWidget].connect(self.field_change)
             new.key.installEventFilter(self.e_filter)
             new.value.installEventFilter(self.e_filter)
+            new.setStyleSheet('''QWidget>QLineEdit{background-color:rgb(30, 30, 30);
+             border-radius:5px; border: 1px solid white;}''')
             return new
 
     def create_space(self, last):
@@ -679,6 +724,8 @@ class FieldEdit(QWidget):
             self.delete_btn.clicked.connect(self.delete)
             self.delete_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.body.addWidget(self.delete_btn, 10)
+            self.delete_btn.setStyleSheet('''border-radius:55px;font-size:24px;color:#FF0266;
+                ''')
             return self.delete_btn
 
     def delete(self):
@@ -689,6 +736,11 @@ class FieldEdit(QWidget):
         if not self.value_type:
             self.value_type = QComboBox(self)
             self.value_type.setLineEdit(QLineEdit(self))
+            self.value_type.setStyleSheet('''
+                background-color:rgb(30, 30, 30);
+                border-radius:5px;
+                border: 1px solid white;
+             ''')
             self.set_value_types()
             self.value_type.activated.connect(lambda: self.send_changed(self.type_changed))
             self.body.addWidget(self.value_type, 20)
@@ -756,6 +808,25 @@ class UploadLinksWidget(QDialog):
         self.initUI(*args)
 
     def initUI(self, type_p=None, data=None):
+        edits_css = '''
+                        background-color:rgb(30, 30, 30);
+                        border-radius:5px;
+                        border: 1px solid white;
+                        '''
+        self.setStyleSheet('''
+            QDialog{
+                background-color: #121212;
+            }
+        ''')
+        btn_css = '''border-radius:5px;font-size:14px;background-color:#BB86FC;color:black;
+                '''
+        btn_css2 = '''border-radius:5px;
+                            font-size:14px;
+                            background:#03DAC5;
+                            color:black;
+                            width:50px;
+                            height:30px;
+                            '''
         self.setGeometry(300, 300, 300, 300)
         self.body = QVBoxLayout(self)
         self.main = QWidget()
@@ -776,6 +847,7 @@ class UploadLinksWidget(QDialog):
         self.links_layout = QVBoxLayout(self)
         self.links.setLayout(self.links_layout)
         self.links_edit = QTextEdit(self)
+        self.links_edit.setStyleSheet(edits_css)
         self.links_edit.setPlaceholderText("Each line on new line")
         self.file_layout = QHBoxLayout(self)
         file = None
@@ -793,6 +865,7 @@ class UploadLinksWidget(QDialog):
         self.opened_file = CutLabel()
         self.opened_file.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.btn_open_file = QPushButton("Open")
+        self.btn_open_file.setStyleSheet(btn_css2)
         self.btn_open_file.clicked.connect(self.get_file)
         self.file_layout.addWidget(self.opened_file, stretch=90)
         self.file_layout.addWidget(self.btn_open_file, stretch=10)
@@ -822,6 +895,7 @@ class UploadLinksWidget(QDialog):
         self.bar = QHBoxLayout(self)
         for btn in self.final.buttons():
             self.bar.addWidget(btn)
+            btn.setStyleSheet(btn_css)
         self.body.addLayout(self.bar)
         self.setFixedSize(300, 300)
 
@@ -893,8 +967,10 @@ class SitemapWindow(QWidget):
 
 
 def normalize_widget(widget):
-    widget.setStyleSheet("border: None;")
+    widget.setStyleSheet(widget.styleSheet().replace("border-bottom: 1px solid red;",
+                                                     "border-bottom: 1px solid white;"))
 
 
 def errorize_widget(widget):
-    widget.setStyleSheet("border: 4px solid red;")
+    widget.setStyleSheet(widget.styleSheet().replace("border-bottom: 1px solid white;",
+                                                     "border-bottom: 1px solid red;"))

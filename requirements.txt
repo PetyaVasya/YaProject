@@ -1,0 +1,13 @@
+beautifulsoup4==4.8.1
+certifi==2019.9.11
+chardet==3.0.4
+idna==2.8
+lxml==4.4.1
+PyQt5==5.13.2
+PyQt5-sip==12.7.0
+PyQtWebEngine==5.13.2
+requests==2.22.0
+soupsieve==1.9.5
+tqdm==4.38.0
+urllib3==1.25.6
+XlsxWriter==1.2.5

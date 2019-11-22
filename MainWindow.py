@@ -2,12 +2,15 @@ from itertools import zip_longest
 from time import sleep
 import xlsxwriter
 import os
+
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QPushButton, QMainWindow, QSizePolicy, QButtonGroup, \
-    QMessageBox, QErrorMessage, QTabWidget, QTabBar, QScrollArea, QDesktopWidget
-from PyQt5.QtCore import Qt
+    QMessageBox, QErrorMessage, QTabWidget, QTabBar, QScrollArea, QDesktopWidget, QSplashScreen, \
+    QWidget
+from PyQt5.QtCore import Qt, QEvent, QMetaObject
 from QParser import QParser, ParserEdit, ParsersList
-from Tools import StoppableThread
+from Tools import StoppableThread, CustomBar, CustomTabWidget
 from parser import Parser
 from DataBase import DataBase
 import re
@@ -15,7 +18,7 @@ import re
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, path, res_path):
+    def __init__(self, path=None, res_path=None):
         super(MainWindow, self).__init__()
         self.db = DataBase(path)
         self.db_path = path
@@ -25,12 +28,26 @@ class MainWindow(QMainWindow):
         self.test = {}
         self.initUI()
 
+    def closeEvent(self, event):
+        print("close")
+        for i in range(1, self.main.count()):
+            reply = self.save_changes_dialog(self.main.widget(i), True)
+            if reply == QMessageBox.Cancel:
+                event.ignore()
+                return
+        event.accept()
+
     def initUI(self):
-        self.resize(QDesktopWidget().width(), QDesktopWidget().height())
-        self.main = QTabWidget(self)
+        start_screen = QPixmap("logo.png")
+        splash_screen = QSplashScreen(start_screen, Qt.WindowStaysOnTopHint)
+        splash_screen.show()
+        self.main = CustomTabWidget(self)
+        self.tb = CustomBar(self.main.width(), 30)
+        self.main.setTabBar(self.tb)
+        self.setWindowTitle("Parsers Creator")
         self.setCentralWidget(self.main)
         self.actions_menu = QButtonGroup(self)
-
+        btn_css = "border-radius:5px;font-size:14px;background-color:#BB86FC;width:100px;height:30px"
         self.ok_button = QPushButton("OK", self)
         self.test_button = QPushButton("Test", self)
         self.run_button = QPushButton("Run", self)
@@ -46,14 +63,55 @@ class MainWindow(QMainWindow):
 
         for button in self.actions_menu.buttons():
             self.statusBar().addWidget(button)
+            button.setStyleSheet(btn_css)
         self.init_parsers_list()
-        self.main.addTab(self.parsers_scroll, "list")
+        self.setStyleSheet("QMainWindow{background-color: #121212;}")
+        self.main.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.main.setStyleSheet('''
+                QTabWidget>QWidget>QWidget{
+                background: #121212;
+                }
+                QTabWidget::tab-bar {
+                    left: 0; 
+                    background: rgb(35, 33, 41);
+                }
+                QTabBar::tab{
+                    font-size:14px;
+                    color:white;
+                    height:30px;
+                    border-bottom: 3px solid rgb(58, 53, 63);
+                    border-left: 3px solid rgb(58, 53, 63);
+                    text-align: center;
+                }
+                
+                QTabBar::tab:first{
+                    border-left:None;
+                }
+                QTabBar::tab::only-one{
+                    border-left:None;
+                }
+                ''')
+        # tb = CustomBar(self)
+        # self.main.setTabBar(tb)
+        #
+        # self.main.tabBar().setExpanding(True)
+        self.main.tabBar().setStyleSheet('''
+                    background: rgb(35, 33, 41);
+                    border-top-left-radius:20px;
+                    border-top-right-radius:20px;
+        ''')
+        self.main.addTab(self.parsers_scroll, "List")
         self.main.setTabsClosable(True)
         self.main.setContentsMargins(0, 0, 0, 0)
         self.main.tabBar().tabButton(0, QTabBar.LeftSide).hide()
         self.main.currentChanged.connect(self.bar_opened)
         self.main.tabCloseRequested.connect(self.close_tab)
+        self.statusBar().setStyleSheet('''
+        background-color: rgb(30, 30, 30);
+        ''')
         self.statusBar().hide()
+        self.resize(QDesktopWidget().width(), QDesktopWidget().height())
+        splash_screen.hide()
 
     def resizeEvent(self, event):
         try:
@@ -68,6 +126,8 @@ class MainWindow(QMainWindow):
         res = self.save_changes_dialog(parser_edit, True)
         if res != QMessageBox.Cancel:
             self.main.removeTab(ind)
+            if self.main.count() == ind:
+                self.main.widget(ind - 1).setStyleSheet("QTabBar::tab{border-left:None;}")
             self.open_parsers_list()
 
     def bar_opened(self, ind):
@@ -100,7 +160,6 @@ class MainWindow(QMainWindow):
         self.parsers_list.parse_buttons.buttonClicked.connect(self.run_stop_parser)
 
     def open_parsers_list(self):
-        self.setWindowTitle("Parsers list")
         self.main.setCurrentIndex(0)
 
     def delete_parser(self, btn):
@@ -127,6 +186,7 @@ class MainWindow(QMainWindow):
         :param btn:
         :return:
         """
+        print("start")
         id_p = self.parsers_list.parse_buttons.id(btn)
         if self.parse.get(id_p):
             reply = QMessageBox.question(self, "Stop parsing", "You lost your progress",
@@ -148,6 +208,14 @@ class MainWindow(QMainWindow):
                         self.parsers_list.get_element(id_p).run_stop()
                 else:
                     QErrorMessage(self).showMessage('File path wrong')
+            elif parser[4] == "Links":
+                links = parser[5].split("\n")
+                fields = self.generate_attributes(parser[3])
+                self.parse[id_p] = StoppableThread(target=self.start_parsing,
+                                                   args=(id_p, links, fields,))
+                self.parse[id_p].start()
+                self.parsers_list.get_element(id_p).run_stop()
+
         QApplication.processEvents()
 
     def open_parser_edit(self, name, id_p=None):
@@ -162,7 +230,6 @@ class MainWindow(QMainWindow):
             new = False
             if not id_p:
 
-                self.setWindowTitle("Create new parser")
                 new = True
                 q_parser = QParser()
 
@@ -171,11 +238,10 @@ class MainWindow(QMainWindow):
                 response = self.db.get_parser(id_p)
                 q_parser = QParser(*response[:3], self.generate_attributes(response[3]),
                                    *response[4:])
-                self.setWindowTitle(q_parser.name)
 
             parser_edit = ParserEdit(q_parser, new, self)
             parser_edit.thing_changed.connect(self.dea_act_buttons)
-            self.main.addTab(parser_edit, "test")
+            self.main.addTab(parser_edit, q_parser.name if q_parser.name else "New")
             self.main.setCurrentIndex(self.main.count() - 1)
 
     def save_changes_dialog(self, parser_edit, cancel=False):
@@ -277,6 +343,7 @@ class MainWindow(QMainWindow):
                     parser_edit.q_parser.id_p = id_p
                     parser_edit.new = False
                     new = self.parsers_list.add_element(name, id_p)
+                    self.main.setTabText(self.main.currentIndex(), name)
                     new.clicked[str, int].connect(self.open_parser_edit)
                 else:
                     id_p = parser_edit.q_parser.id_p
@@ -292,7 +359,6 @@ class MainWindow(QMainWindow):
                 parser_edit.q_parser.links = parser_edit.res
                 for k in parser_edit.changed.keys():
                     parser_edit.changed[k] = False
-                self.setWindowTitle(parser_edit.get_name())
                 self.apply_button.setEnabled(False)
 
             elif btn.text() == "Test":
@@ -300,6 +366,7 @@ class MainWindow(QMainWindow):
                     attrs = parser_edit.get_attributes()
                     id_p = parser_edit.get_id()
                     parser_edit.create_log_widget()
+                    self.main.setTabText(self.main.currentIndex(), parser_edit.get_name())
                     self.test[id_p] = StoppableThread(target=self.start_test,
                                                       args=(self.main.currentIndex(), attrs,))
                     self.test[id_p].start()
@@ -314,8 +381,9 @@ class MainWindow(QMainWindow):
                         parser_edit.get_id(), parser_edit.links, parser_edit.get_attributes(),))
                     self.parse[parser_edit.get_id()] = new
                     self.parse[id_p].start()
-                    self.open_parsers_list()
+                    self.parsers_list.get_element(id_p).run_stop()
                     self.main.removeTab(self.main.currentIndex())
+                    self.open_parsers_list()
 
         else:
             print("error")
@@ -389,6 +457,7 @@ class MainWindow(QMainWindow):
 
     def start_parsing(self, id_p, urls, fields):
         print(len(urls))
+        element = self.parsers_list.get_element(id_p)
         try:
             workbook = xlsxwriter.Workbook(self.res_path + '/' + str(id_p) + '.xlsx')
             worksheet = workbook.add_worksheet()
@@ -401,15 +470,19 @@ class MainWindow(QMainWindow):
                 res = parser.parse_url(i, fields.values())
                 print(res)
                 self.parsers_list.get_element(id_p).update_progress(ind)
-                for c, j in enumerate(res):
+                worksheet.write(ind, 0, i)
+                for c, j in enumerate(res, 1):
                     worksheet.write(ind, c, j)
                 if ind % 10 == 0:
                     sleep(1)
+            path = self.res_path + "/" + str(id_p) + ".xlsx"
             db = DataBase(self.db_path)
-            db.update_parser(id_p, respath=self.res_path + "/" + str(id_p) + ".xlsx")
+            db.update_parser(id_p, respath=path)
             db.close()
+            element.set_result(path)
         finally:
             workbook.close()
-            self.parsers_list.get_element(id_p).hide_progress()
+            element.hide_progress()
+            element.run_stop()
             del self.parse[id_p]
             print("end_parsing")
