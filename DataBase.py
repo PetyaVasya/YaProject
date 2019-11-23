@@ -45,13 +45,16 @@ class DataBase:
 
     def update_parser(self, id_p, name=None, url=None, attributes=None, type_p=None, links=None,
                       respath=None):
-        print((name, url, attributes, type_p, links, respath, id_p,))
         self.cur.execute(
-            ("UPDATE parsers SET " + ("name=?, " if name else "") + ("url=?, " if url else "") + (
-                "attributes=?, " if attributes else "") + ("linkstype=?, " if type_p else "") + (
-                 "links=?, " if links else "") + ("respath=?, " if respath else "") +
+            ("UPDATE parsers SET " + ("name=?, " if name is not None else "") + (
+                "url=?, " if url is not None else "") + (
+                 "attributes=?, " if attributes is not None else "") + (
+                 "linkstype=?, " if type_p is not None else "") + (
+                 "links=?, " if links is not None else "") + (
+                 "respath=?, " if respath is not None else "") +
              " WHERE id=?").replace(",  WHERE", "WHERE"),
-            tuple(filter(lambda x: x, (name, url, attributes, type_p, links, respath, id_p,))))
+            tuple(filter(lambda x: x is not None,
+                         (name, url, attributes, type_p, links, respath, id_p,))))
         self.con.commit()
 
     def get_lastrowid(self):

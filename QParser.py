@@ -3,11 +3,13 @@ from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineP
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QHBoxLayout, QVBoxLayout, QSizePolicy, QLineEdit, QButtonGroup, QGridLayout, QTextBrowser, \
     QComboBox, QScrollArea, QFileDialog, QStyle, QProgressBar, QStyleOption, QRadioButton, \
-    QStackedWidget, QTextEdit, QTreeWidget, QDialog, QMessageBox
+    QStackedWidget, QTextEdit, QTreeWidget, QDialog, QMessageBox, QFrame
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QUrl, QEvent
 import requests
 import re
 import os
+
+from Tools import LoadingWidget, CutLabel
 
 
 class WebEnginePage(QWebEnginePage):
@@ -60,6 +62,7 @@ class ParsersList(QWidget):
     def initUI(self):
         self.delete_buttons = QButtonGroup(self)
         self.parse_buttons = QButtonGroup(self)
+        self.result_buttons = QButtonGroup(self)
         self.setStyleSheet("""
         ParsersList {
             background-color: #121212;
@@ -67,9 +70,11 @@ class ParsersList(QWidget):
         """)
         self.layout_v = QVBoxLayout(self)
         for key, value in self.q_parsers.items():
-            new = ParserElement(name=value[0], id_p=key, respath=value[1], parent=self)
+            new = ParserElement(name=value[0], id_p=key, respath=value[2], parent=self)
+            new.set_url(value[1])
             self.delete_buttons.addButton(new.delete, key)
             self.parse_buttons.addButton(new.run, key)
+            self.result_buttons.addButton(new.result, key)
             self.layout_v.addWidget(new, alignment=Qt.AlignTop)
 
         self.createNewButton = QPushButton("+", self)
@@ -120,7 +125,7 @@ class ParserElement(QWidget):
 
         # styles
 
-        btn_css = '''border-radius:5px;font-size:24px;background-color:#BB86FC;
+        btn_css = '''border-radius:5px;font-size:24px;background-color:#BB86FC;height:30px;
         '''
         btn_css2 = '''border-radius:15px;font-size:24px;color:#FF0266;
                 '''
@@ -132,20 +137,63 @@ class ParserElement(QWidget):
             border-radius: 20px;
             }
         """)
+        self.back = QStackedWidget(self)
+
         self.element = QHBoxLayout(self)
-        self.pixmap = QPixmap("img.png")
+        self.pixmap = QPixmap("./imgs/default.png")
         self.img = QLabel(self)
         self.img.setPixmap(self.pixmap)
+        w = QWidget(self)
+        w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.info = QGridLayout(w)
         self.title = QLabel(self)
         self.title.setText(self.name)
-        self.title.setStyleSheet('''color:white;font-size:32px''')
-        self.element.addWidget(self.img)
-        self.element.addWidget(self.title, stretch=60)
+        self.title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.title.setStyleSheet('''color:white;font-size:26px;''')
+        name = QLabel(self)
+        name.setText("Name:")
+        # name.font()
+        name.setStyleSheet('''color:white;font-size:26px;border-bottom: 1px solid white;''')
+        line = QFrame(self)
+        line.setLineWidth(2)
+        line.setStyleSheet("color:white;")
+        line.setFrameShape(QFrame.HLine)
+        # name.setFrameShape(QFrame.HLine)
+        name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.info.addWidget(name, 0, 0, 1, 3)
+        self.info.addWidget(line, 1, 0, 1, 3)
+        self.info.addWidget(self.title, 2, 0, 4, 3)
+        url_name = QLabel(self)
+        url_name.setText("URL:")
+        url_name.setStyleSheet('''color:white;font-size:26px;''')
+        url_name.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.url = CutLabel(Qt.ElideRight, self)
+        self.url.setText("")
+        self.url.setStyleSheet('''color:white;font-size:18px;''')
+        self.url.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.url.setMaximumWidth(300)
+        line2 = QFrame(self)
+        line2.setLineWidth(2)
+        line2.setStyleSheet("color:white;")
+        line2.setFrameShape(QFrame.HLine)
+        self.info.addWidget(url_name, 0, 3, 1, 6)
+        self.info.addWidget(line2, 1, 3, 1, 6)
+        self.info.addWidget(self.url, 2, 3, 4, 6)
+        self.element.addWidget(self.img, stretch=10)
+        self.element.addWidget(self.back, stretch=60)
+        self.back.addWidget(w)
+
         self.result = QPushButton(self)
+        self.result.setMaximumWidth(50)
         self.result.setIcon(self.style().standardIcon(getattr(QStyle, "SP_FileIcon")))
         self.result.clicked.connect(self.open_result)
         self.result.setStyleSheet(btn_css)
+        second = QWidget(self)
+        second_l = QHBoxLayout(self)
         self.parse_bar = QProgressBar(self)
+        second_l.addWidget(self.parse_bar, Qt.AlignCenter)
+        second.setLayout(second_l)
+        self.back.addWidget(self.parse_bar)
         self.parse_bar.setFormat("%v/%m")
         self.parse_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.progress_changed.connect(self.set_progress)
@@ -153,20 +201,29 @@ class ParserElement(QWidget):
             self.parse_bar.hide()
         if not self.fpath:
             self.result.hide()
-        self.element.addWidget(self.parse_bar, stretch=20)
-        self.element.addWidget(self.result, stretch=10)
+        w2 = QWidget(self)
+        sidebar = QHBoxLayout(self)
+        w2.setLayout(sidebar)
+        w2.setFixedWidth(120)
+        self.element.addWidget(w2, stretch=30)
+        # sidebar.addWidget(self.parse_bar, stretch=20)
+        sidebar.addWidget(self.result, stretch=10)
+        # self.element.setM
         self.run = QPushButton(self)
+        self.run.setMaximumWidth(50)
         self.run.setStyleSheet(btn_css)
         self.run.setIcon(self.style().standardIcon(getattr(QStyle, self.run_vars[self.execute])))
-        self.element.addWidget(self.run, stretch=10)
+        sidebar.addWidget(self.run, stretch=10)
         self.delete = QPushButton("X", self)
-        print(self.width())
         self.setContentsMargins(0, 0, 0, 0)
         self.delete.setFixedWidth(30)
         self.delete.setFixedHeight(30)
         self.delete.setGeometry(self.width() - self.delete.width(), 0, self.delete.width(),
                                 self.delete.height())
         self.delete.setStyleSheet(btn_css2)
+        # self.load = LoadingWidget(self)
+        # self.load.show()
+        # self.load.setStyleSheet("border-radius: 5px;")
 
     def move_delete(self):
         self.delete.setGeometry(self.width() - self.delete.width(), 0, self.delete.width(),
@@ -204,16 +261,18 @@ class ParserElement(QWidget):
         if self.fpath:
             self.result.show()
         else:
-            self.result.show()
+            self.result.hide()
 
     def open_result(self):
-        os.system("open " + self.fpath)
+        if os.path.exists(self.fpath):
+            os.system("open " + self.fpath)
 
     def delete_self(self):
         self.setParent(None)
 
     def set_progress(self, value):
         if not self.parse_bar.isVisible():
+            self.back.setCurrentIndex(1)
             self.parse_bar.show()
         self.parse_bar.setValue(value)
 
@@ -221,6 +280,7 @@ class ParserElement(QWidget):
         self.parse_bar.setMaximum(count)
 
     def hide_progress(self):
+        self.back.setCurrentIndex(0)
         self.parse_bar.hide()
 
     def update_progress(self, value):
@@ -228,6 +288,16 @@ class ParserElement(QWidget):
 
     def set_name(self, name):
         self.title.setText(name)
+
+    def set_image(self, path):
+        self.img.setPixmap(QPixmap(path))
+
+    def set_url(self, url):
+        self.url.setText(url)
+
+    def resizeEvent(self, QResizeEvent):
+        self.url.setFixedWidth(self.info.cellRect(2, 3).width() * 6)
+        QResizeEvent.accept()
 
 
 class ParserEdit(QWidget):
@@ -263,6 +333,7 @@ class ParserEdit(QWidget):
                 background-color:rgb(30, 30, 30);
                 border-radius:5px;
                 border: 1px solid white;
+                border-bottom: 1px solid white;
                 '''
         self.thing_changed.connect(self.check_changes)
         self.layout_v = QVBoxLayout(self)
@@ -276,6 +347,7 @@ class ParserEdit(QWidget):
         self.url_load = QPushButton("Load", self)
         self.url_load.setStyleSheet(btn_css)
         self.url_edit = QLineEdit(self)
+        self.url_edit.setStyleSheet("border-bottom: 1px solid white;")
         self.url_edit.setObjectName("url")
         self.links_box = QComboBox(self)
         self.links_box.setObjectName("links")
@@ -349,9 +421,6 @@ class ParserEdit(QWidget):
                 pass
             self.url_edit.setText(self.q_parser.url)
             self.open_url(self.q_parser.url)
-        else:
-            self.res = ""
-            self.links_type = ""
         print(self.links_type)
         self.setStyleSheet(
             '''
@@ -519,7 +588,9 @@ class ParserEdit(QWidget):
             self.url_edit.setText(links[0])
             self.links_box.clear()
             self.links_box.addItems(links)
-            print(links)
+
+    def take_screenshot(self, path):
+        self.view.grab().scaled(200, 200, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).save(path, b'PNG')
 
 
 class FieldsPull(QWidget):
@@ -672,6 +743,7 @@ class FieldEdit(QWidget):
         self.key.setPlaceholderText("Name")
         self.key.setObjectName("key")
         self.value = QLineEdit(self)
+        self.value.setStyleSheet('border-bottom: 1px solid white;')
         self.value.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.value.editingFinished.connect(self.check_full)
         self.value.setPlaceholderText("Value")
@@ -740,6 +812,7 @@ class FieldEdit(QWidget):
                 background-color:rgb(30, 30, 30);
                 border-radius:5px;
                 border: 1px solid white;
+                border-bottom: 1px solid white;
              ''')
             self.set_value_types()
             self.value_type.activated.connect(lambda: self.send_changed(self.type_changed))
@@ -774,7 +847,7 @@ class QParser:
     Класс испольщующийся для хранения последней сохранненой версии в ParseEdit.
     """
 
-    def __init__(self, id_p=None, name="", url="", attributes=dict(), type_p="", links="",
+    def __init__(self, id_p=None, name="", url="", attributes=dict(), type_p="Link", links="",
                  element=None):
         self.id_p = id_p
         self.name = name
@@ -816,6 +889,7 @@ class UploadLinksWidget(QDialog):
         self.setStyleSheet('''
             QDialog{
                 background-color: #121212;
+                color: white;
             }
         ''')
         btn_css = '''border-radius:5px;font-size:14px;background-color:#BB86FC;color:black;
@@ -862,7 +936,7 @@ class UploadLinksWidget(QDialog):
             self.type_p = type_p
         else:
             self.type_p = ""
-        self.opened_file = CutLabel()
+        self.opened_file = CutLabel(Qt.ElideLeft)
         self.opened_file.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.btn_open_file = QPushButton("Open")
         self.btn_open_file.setStyleSheet(btn_css2)
@@ -927,17 +1001,6 @@ class UploadLinksWidget(QDialog):
 
     def get_result(self):
         return self.type_p, self.res
-
-
-class CutLabel(QLabel):
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-
-        metrics = QFontMetrics(self.font())
-        elided = metrics.elidedText(self.text(), Qt.ElideLeft, self.width())
-
-        painter.drawText(self.rect(), self.alignment(), elided)
 
 
 class SitemapWindow(QWidget):

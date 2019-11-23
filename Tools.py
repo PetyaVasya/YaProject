@@ -3,9 +3,10 @@ import sys
 from threading import Thread
 
 from PyQt5 import QtXml
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QPalette, QBrush, QColor, QPainter, QPen
-from PyQt5.QtWidgets import QWidget, QTreeWidgetItem, QTabBar, QTabWidget
+from PyQt5.QtCore import Qt, QSize, QRect
+from PyQt5.QtGui import QPalette, QBrush, QColor, QPainter, QPen, QFontMetrics
+from PyQt5.QtWidgets import QWidget, QTreeWidgetItem, QTabBar, QTabWidget, QProgressBar, \
+    QApplication, QLabel
 
 
 class LoadingWidget(QWidget):
@@ -15,18 +16,20 @@ class LoadingWidget(QWidget):
 
     def __init__(self, parent=None, text=""):
 
-        QWidget.__init__(self, parent)
+        super(LoadingWidget, self).__init__(parent)
         palette = QPalette(self.palette())
         palette.setColor(palette.Background, Qt.transparent)
         self.setPalette(palette)
-        self.text = text
+        # self.text = text
+        self.progressbar = QProgressBar(self)
+        self.progressbar.move()
 
     def paintEvent(self, event):
 
         painter = QPainter()
         painter.begin(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.fillRect(event.rect(), QBrush(QColor(255, 255, 255, 127)))
+        painter.fillRect(QRect(0, 0, self.width() * 2, self.height()), QBrush(QColor(255, 255, 255, 127)))
         painter.setPen(QPen(Qt.NoPen))
 
         for i in range(6):
@@ -38,8 +41,9 @@ class LoadingWidget(QWidget):
                 self.width() / 2 + 30 * math.cos(2 * math.pi * i / 6.0) - 10,
                 self.height() / 2 + 30 * math.sin(2 * math.pi * i / 6.0) - 10,
                 20, 20)
-        painter.drawText(self.width() / 2 + 5, self.height() / 2 + 20, self.text)
+        # painter.drawText(self.width() / 2 + 5, self.height() / 2 + 20, self.text)
         painter.end()
+
 
     def showEvent(self, event):
 
@@ -146,3 +150,18 @@ class CustomTabWidget(QTabWidget):
     def resizeEvent(self, event):
         self.tabBar().setMinimumWidth(self.width())
         QTabWidget.resizeEvent(self, event)
+
+
+class CutLabel(QLabel):
+
+    def __init__(self, align, parent=None):
+        QLabel.__init__(self, parent)
+        self.align = align
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+
+        metrics = QFontMetrics(self.font())
+        elided = metrics.elidedText(self.text(), self.align, self.width())
+
+        painter.drawText(self.rect(), self.alignment(), elided)

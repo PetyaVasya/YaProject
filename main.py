@@ -16,7 +16,7 @@ def main():
 
     # ui = Ui_MainWindow()
 
-    ex = MainWindow(path="./parsers.db", res_path="./results")
+    ex = MainWindow(path="./parsers.db", res_path="./results", img_path="./imgs")
     # app.aboutToQuit.connect(ex.closeEvent)
     # ui.setupUi(ex)
     ex.show()
@@ -28,6 +28,10 @@ def setup():
         os.mkdir('./results')
     if not os.path.exists("./sitemaps"):
         os.mkdir('./sitemaps')
+    if not os.path.exists("proxies.txt"):
+        open("proxies.txt", "w").close()
+    if not os.path.exists("./imgs"):
+        os.mkdir('./imgs')
 
 
 if __name__ == "__main__":

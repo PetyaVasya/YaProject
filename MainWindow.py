@@ -7,7 +7,7 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QPushButton, QMainWindow, QSizePolicy, QButtonGroup, \
     QMessageBox, QErrorMessage, QTabWidget, QTabBar, QScrollArea, QDesktopWidget, QSplashScreen, \
-    QWidget
+    QWidget, QVBoxLayout, QTextEdit
 from PyQt5.QtCore import Qt, QEvent, QMetaObject
 from QParser import QParser, ParserEdit, ParsersList
 from Tools import StoppableThread, CustomBar, CustomTabWidget
@@ -18,11 +18,13 @@ import re
 
 class MainWindow(QMainWindow):
 
-    def __init__(self, path=None, res_path=None):
+    def __init__(self, path=None, res_path=None, img_path=None):
         super(MainWindow, self).__init__()
         self.db = DataBase(path)
         self.db_path = path
+        self.check_db()
         self.res_path = res_path
+        self.img_path = img_path
         self.test = None
         self.parse = {}
         self.test = {}
@@ -38,9 +40,12 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def initUI(self):
-        start_screen = QPixmap("logo.png")
+        if os.path.exists("logo.png"):
+            start_screen = QPixmap("logo.png")
         splash_screen = QSplashScreen(start_screen, Qt.WindowStaysOnTopHint)
         splash_screen.show()
+        self.setMaximumSize(QDesktopWidget().width(), QDesktopWidget().height())
+        self.setMinimumSize(800, 400)
         self.main = CustomTabWidget(self)
         self.tb = CustomBar(self.main.width(), 30)
         self.main.setTabBar(self.tb)
@@ -65,7 +70,16 @@ class MainWindow(QMainWindow):
             self.statusBar().addWidget(button)
             button.setStyleSheet(btn_css)
         self.init_parsers_list()
-        self.setStyleSheet("QMainWindow{background-color: #121212;}")
+        self.init_proxies_page()
+        self.setStyleSheet('''QMainWindow{background-color: #121212;}
+                        QDialog{
+                            background-color: #121212;
+                        }
+                        QDialog>QLabel{
+                            color: white;
+                            font-size:14px;
+                        }
+                            ''')
         self.main.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.main.setStyleSheet('''
                 QTabWidget>QWidget>QWidget{
@@ -101,9 +115,11 @@ class MainWindow(QMainWindow):
                     border-top-right-radius:20px;
         ''')
         self.main.addTab(self.parsers_scroll, "List")
+        self.main.addTab(self.proxies_page, "Proxies")
         self.main.setTabsClosable(True)
         self.main.setContentsMargins(0, 0, 0, 0)
         self.main.tabBar().tabButton(0, QTabBar.LeftSide).hide()
+        self.main.tabBar().tabButton(1, QTabBar.LeftSide).hide()
         self.main.currentChanged.connect(self.bar_opened)
         self.main.tabCloseRequested.connect(self.close_tab)
         self.statusBar().setStyleSheet('''
@@ -111,7 +127,8 @@ class MainWindow(QMainWindow):
         ''')
         self.statusBar().hide()
         self.resize(QDesktopWidget().width(), QDesktopWidget().height())
-        splash_screen.hide()
+        if os.path.exists("logo.png"):
+            splash_screen.hide()
 
     def resizeEvent(self, event):
         try:
@@ -135,15 +152,25 @@ class MainWindow(QMainWindow):
             self.statusBar().hide()
         else:
             self.statusBar().show()
-            self.apply_button.setEnabled(any(self.main.currentWidget().changed.values()))
+            if ind == 1:
+                self.apply_button.hide()
+                self.run_button.hide()
+                self.test_button.hide()
+                self.cancel_button.hide()
+            else:
+                self.apply_button.show()
+                self.run_button.show()
+                self.test_button.show()
+                self.cancel_button.show()
+                self.apply_button.setEnabled(any(self.main.currentWidget().changed.values()))
 
     def init_parsers_list(self):
         self.parsers_scroll = QScrollArea(self)
         self.parsers_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.parsers_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.parsers_scroll.setWidgetResizable(True)
-        res = self.db.execute("SELECT id, name, respath from parsers")
-        self.parsers_list = ParsersList(q_parsers=dict(map(lambda x: (x[0], (x[1], x[2])), res)),
+        res = self.db.execute("SELECT id, name, url, respath from parsers")
+        self.parsers_list = ParsersList(q_parsers=dict(map(lambda x: (x[0], (x[1], x[2], x[3])), res)),
                                         parent=self)
         self.parsers_scroll.setWidget(self.parsers_list)
         for i in self.parse.keys():
@@ -156,8 +183,45 @@ class MainWindow(QMainWindow):
                             range(self.parsers_list.layout_v.count())):
             # print(q_parser.name)
             q_parser.clicked[str, int].connect(self.open_parser_edit)
+            path = self.img_path + "/" + str(q_parser.id_p) + ".png"
+            if os.path.exists(path):
+                q_parser.set_image(path)
         self.parsers_list.delete_buttons.buttonClicked.connect(self.delete_parser)
         self.parsers_list.parse_buttons.buttonClicked.connect(self.run_stop_parser)
+        self.parsers_list.result_buttons.buttonClicked.connect(self.check_path)
+
+    def check_db(self):
+        res = self.db.execute("SELECT id, links, respath from parsers")
+        for i in res:
+            print(i)
+            links_type = None
+            links = None
+            respath = None
+            if i[1] and not os.path.exists(i[1]):
+                links = ""
+                links_type = "Link"
+            if i[2] and not os.path.exists(i[2]):
+                respath = ""
+            if links_type or links or respath:
+                self.db.update_parser(i[0], type_p=links_type, links=links, respath=respath)
+
+    def check_path(self, btn):
+        id_p = self.parsers_list.result_buttons.id(btn)
+        element = self.parsers_list.get_element(id_p)
+        if not os.path.exists(element.fpath):
+            self.db.update_parser(id_p, respath="")
+            element.set_result("")
+
+    def init_proxies_page(self):
+        self.proxies_page = QWidget(self)
+        body = QVBoxLayout()
+        self.proxies_edit = QTextEdit()
+        with open("proxies.txt", "r") as r:
+            self.proxies_edit.setText(r.read())
+        self.proxies_edit.setPlaceholderText("Each proxie on new line.\ntype://user:pass@host:port"
+                                             "\ntype://host:port")
+        body.addWidget(self.proxies_edit)
+        self.proxies_page.setLayout(body)
 
     def open_parsers_list(self):
         self.main.setCurrentIndex(0)
@@ -168,7 +232,7 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             id_p = self.parsers_list.delete_buttons.id(btn)
             dele = next((
-                self.main.widget(i) for i in range(self.main.count()) if
+                self.main.widget(i) for i in range(2, self.main.count()) if
                 i and (self.main.widget(i).q_parser.id_p == id_p)), None)
             self.main.removeTab(self.main.indexOf(dele))
             self.parsers_list.delete_buttons.removeButton(btn)
@@ -191,10 +255,11 @@ class MainWindow(QMainWindow):
         if self.parse.get(id_p):
             reply = QMessageBox.question(self, "Stop parsing", "You lost your progress",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
             if reply == QMessageBox.Yes:
                 self.parse[id_p].kill()
                 self.parse[id_p].join()
-            self.parsers_list.get_element(id_p).run_stop()
+                self.parsers_list.get_element(id_p).run_stop()
         else:
             parser = self.db.get_parser(id_p)
             if parser[4] == "File":
@@ -215,34 +280,42 @@ class MainWindow(QMainWindow):
                                                    args=(id_p, links, fields,))
                 self.parse[id_p].start()
                 self.parsers_list.get_element(id_p).run_stop()
+            elif parser[4] == "Link":
+                links = [parser[2]]
+                fields = self.generate_attributes(parser[3])
+                self.parse[id_p] = StoppableThread(target=self.start_parsing,
+                                                   args=(id_p, links, fields,))
+                self.parse[id_p].start()
+                self.parsers_list.get_element(id_p).run_stop()
 
         QApplication.processEvents()
 
     def open_parser_edit(self, name, id_p=None):
-        has = next(
-            (i for i in range(self.main.count()) if
-             i and (self.main.widget(i).q_parser.id_p == id_p)),
-            None)
+        if id_p not in self.parse.keys():
+            has = next(
+                (i for i in range(2, self.main.count()) if
+                 i and (self.main.widget(i).q_parser.id_p == id_p)),
+                None)
 
-        if has:
-            self.main.setCurrentIndex(has)
-        else:
-            new = False
-            if not id_p:
-
-                new = True
-                q_parser = QParser()
-
+            if has:
+                self.main.setCurrentIndex(has)
             else:
+                new = False
+                if not id_p:
 
-                response = self.db.get_parser(id_p)
-                q_parser = QParser(*response[:3], self.generate_attributes(response[3]),
-                                   *response[4:])
+                    new = True
+                    q_parser = QParser()
 
-            parser_edit = ParserEdit(q_parser, new, self)
-            parser_edit.thing_changed.connect(self.dea_act_buttons)
-            self.main.addTab(parser_edit, q_parser.name if q_parser.name else "New")
-            self.main.setCurrentIndex(self.main.count() - 1)
+                else:
+
+                    response = self.db.get_parser(id_p)
+                    q_parser = QParser(*response[:3], self.generate_attributes(response[3]),
+                                       *response[4:])
+
+                parser_edit = ParserEdit(q_parser, new, self)
+                parser_edit.thing_changed.connect(self.dea_act_buttons)
+                self.main.addTab(parser_edit, q_parser.name if q_parser.name else "New")
+                self.main.setCurrentIndex(self.main.count() - 1)
 
     def save_changes_dialog(self, parser_edit, cancel=False):
         """
@@ -251,12 +324,17 @@ class MainWindow(QMainWindow):
         :param cancel:
         :return:
         """
+        path = self.img_path + "/" + str(parser_edit.get_id())+ ".png"
         if not any(parser_edit.changed.values()):
+            parser_edit.take_screenshot(path)
+            self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
             return True
         res = QMessageBox.question(self, "Saving changes", "Save changes?", (
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel) if cancel else (
                 QMessageBox.Yes | QMessageBox.No), QMessageBox.Yes)
         if res == QMessageBox.Yes:
+            parser_edit.take_screenshot(path)
+            self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
             attrs = parser_edit.get_attributes()
 
             name = parser_edit.get_name()
@@ -293,6 +371,12 @@ class MainWindow(QMainWindow):
 
     def finalEditAction(self, btn):
         parser_edit = self.main.currentWidget()
+        if self.main.currentIndex() == 1:
+
+            with open("proxies.txt", "w") as w:
+                w.write(self.proxies_edit.toPlainText().replace("\x00", "\n"))
+            return
+
         if btn.text() == "Cancel":
 
             id_p = parser_edit.get_id()
@@ -330,6 +414,9 @@ class MainWindow(QMainWindow):
                 if self.test.get(id_p) and self.test[id_p].isAlive():
                     self.test[id_p].kill()
                     self.test[id_p].join()
+                path = self.img_path + "/" + str(parser_edit.get_id())+ ".png"
+                parser_edit.take_screenshot(path)
+                self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
                 self.main.removeTab(self.main.currentIndex())
                 self.open_parsers_list()
 
@@ -357,6 +444,9 @@ class MainWindow(QMainWindow):
                 parser_edit.q_parser.attributes = attrs
                 parser_edit.q_parser.type_p = parser_edit.links_type
                 parser_edit.q_parser.links = parser_edit.res
+                path = self.img_path + "/" + str(parser_edit.get_id())+ ".png"
+                parser_edit.take_screenshot(path)
+                self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
                 for k in parser_edit.changed.keys():
                     parser_edit.changed[k] = False
                 self.apply_button.setEnabled(False)
@@ -464,7 +554,9 @@ class MainWindow(QMainWindow):
             worksheet.write(0, 0, "url")
             for p, key in enumerate(fields.keys()):
                 worksheet.write(0, p + 1, key)
-            parser = Parser()
+            with open("proxies.txt", "r") as r:
+                proxies = r.read().split()
+            parser = Parser(proxies=proxies)
             self.parsers_list.get_element(id_p).set_links_count(len(urls))
             for ind, i in enumerate(urls, 1):
                 res = parser.parse_url(i, fields.values())
@@ -484,5 +576,8 @@ class MainWindow(QMainWindow):
             workbook.close()
             element.hide_progress()
             element.run_stop()
+            for childQWidget in self.findChildren(QWidget):
+                if childQWidget.__class__.__name__ == 'QMessageBox':
+                    childQWidget.close()
             del self.parse[id_p]
             print("end_parsing")

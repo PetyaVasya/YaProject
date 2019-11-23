@@ -1,5 +1,5 @@
 import requests
-from requests.exceptions import ProxyError
+from requests.exceptions import ProxyError, ConnectionError
 from bs4 import BeautifulSoup
 import re
 
@@ -27,10 +27,13 @@ class Parser:
                     proxies['https'] = proxie
                     proxies['http'] = proxie
                     self.proxies[proxie] += 1
-                r = requests.get(url, headers=headers)  # , proxies=proxies)
+                r = requests.get(url, headers=headers, proxies=proxies)
                 break
             except ProxyError as e:
                 del self.proxies[proxie]
+            except ConnectionError as e:
+                if self.proxies:
+                    del self.proxies[proxie]
         return r.text
 
     def get_field(self, html, field):
