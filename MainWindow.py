@@ -10,10 +10,12 @@ from PyQt5.QtWidgets import QApplication, QPushButton, QMainWindow, QSizePolicy,
     QWidget, QVBoxLayout, QTextEdit
 from PyQt5.QtCore import Qt, QEvent, QMetaObject
 from QParser import QParser, ParserEdit, ParsersList
-from Tools import StoppableThread, CustomBar, CustomTabWidget
-from parser import Parser
+from Tools import StoppableThread, CustomBar, CustomTabWidget, get_sitemaps_paths, \
+    fetch_sitemaps_links, get_ranges_url
+from Parser import Parser
 from DataBase import DataBase
 import re
+import platform
 
 
 class MainWindow(QMainWindow):
@@ -42,8 +44,8 @@ class MainWindow(QMainWindow):
     def initUI(self):
         if os.path.exists("logo.png"):
             start_screen = QPixmap("logo.png")
-        splash_screen = QSplashScreen(start_screen, Qt.WindowStaysOnTopHint)
-        splash_screen.show()
+            splash_screen = QSplashScreen(start_screen, Qt.WindowStaysOnTopHint)
+            splash_screen.show()
         self.setMaximumSize(QDesktopWidget().width(), QDesktopWidget().height())
         self.setMinimumSize(800, 400)
         self.main = CustomTabWidget(self)
@@ -52,7 +54,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Parsers Creator")
         self.setCentralWidget(self.main)
         self.actions_menu = QButtonGroup(self)
-        btn_css = "border-radius:5px;font-size:14px;background-color:#BB86FC;width:100px;height:30px"
+        btn_css = '''border-radius:5px;
+                    font-size:14px;
+                    background-color:#BB86FC;
+                    width:100px;
+                    height:30px'''
         self.ok_button = QPushButton("OK", self)
         self.test_button = QPushButton("Test", self)
         self.run_button = QPushButton("Run", self)
@@ -118,8 +124,12 @@ class MainWindow(QMainWindow):
         self.main.addTab(self.proxies_page, "Proxies")
         self.main.setTabsClosable(True)
         self.main.setContentsMargins(0, 0, 0, 0)
-        self.main.tabBar().tabButton(0, QTabBar.LeftSide).hide()
-        self.main.tabBar().tabButton(1, QTabBar.LeftSide).hide()
+        if platform.system() == 'Windows':
+            self.main.tabBar().tabButton(0, QTabBar.RightSide).hide()
+            self.main.tabBar().tabButton(1, QTabBar.RightSide).hide()
+        else:
+            self.main.tabBar().tabButton(0, QTabBar.LeftSide).hide()
+            self.main.tabBar().tabButton(1, QTabBar.LeftSide).hide()
         self.main.currentChanged.connect(self.bar_opened)
         self.main.tabCloseRequested.connect(self.close_tab)
         self.statusBar().setStyleSheet('''
@@ -170,8 +180,9 @@ class MainWindow(QMainWindow):
         self.parsers_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.parsers_scroll.setWidgetResizable(True)
         res = self.db.execute("SELECT id, name, url, respath from parsers")
-        self.parsers_list = ParsersList(q_parsers=dict(map(lambda x: (x[0], (x[1], x[2], x[3])), res)),
-                                        parent=self)
+        self.parsers_list = ParsersList(
+            q_parsers=dict(map(lambda x: (x[0], (x[1], x[2], x[3])), res)),
+            parent=self)
         self.parsers_scroll.setWidget(self.parsers_list)
         for i in self.parse.keys():
             element = self.parsers_list.get_element(i)
@@ -191,17 +202,24 @@ class MainWindow(QMainWindow):
         self.parsers_list.result_buttons.buttonClicked.connect(self.check_path)
 
     def check_db(self):
-        res = self.db.execute("SELECT id, links, respath from parsers")
+        res = self.db.execute("SELECT id, linkstype, links, respath from parsers")
         for i in res:
             print(i)
             links_type = None
             links = None
             respath = None
-            if i[1] and not os.path.exists(i[1]):
-                links = ""
-                links_type = "Link"
-            if i[2] and not os.path.exists(i[2]):
-                respath = ""
+            if i[1] != "Sitemap":
+                if i[2] and not os.path.exists(i[2]):
+                    links = ""
+                    links_type = "Link"
+                if i[3] and not os.path.exists(i[3]):
+                    respath = ""
+            else:
+                paths = get_sitemaps_paths(i[2].split(';')[0], './sitemaps')
+                print(paths)
+                if i[2] and (not os.path.exists(paths[0]) or (not os.path.exists(paths[1]))):
+                    links = ""
+                    links_type = "Link"
             if links_type or links or respath:
                 self.db.update_parser(i[0], type_p=links_type, links=links, respath=respath)
 
@@ -242,6 +260,9 @@ class MainWindow(QMainWindow):
                 self.parse[id_p].join()
             del self.parsers_list.q_parsers[id_p]
             self.db.delete_parser(id_p)
+            res_path = self.res_path + '/' + str(id_p) + '.xlsx'
+            if os.path.exists(res_path):
+                os.remove(res_path)
 
     def run_stop_parser(self, btn):
         """
@@ -259,34 +280,26 @@ class MainWindow(QMainWindow):
             if reply == QMessageBox.Yes:
                 self.parse[id_p].kill()
                 self.parse[id_p].join()
-                self.parsers_list.get_element(id_p).run_stop()
         else:
             parser = self.db.get_parser(id_p)
+            fields = self.generate_attributes(parser[3])
             if parser[4] == "File":
                 if os.path.exists(parser[5]):
                     with open(parser[5], "r") as links:
                         links = links.read().split("\n")
-                        fields = self.generate_attributes(parser[3])
-                        self.parse[id_p] = StoppableThread(target=self.start_parsing,
-                                                           args=(id_p, links, fields,))
-                        self.parse[id_p].start()
-                        self.parsers_list.get_element(id_p).run_stop()
                 else:
                     QErrorMessage(self).showMessage('File path wrong')
+                    return
             elif parser[4] == "Links":
                 links = parser[5].split("\n")
-                fields = self.generate_attributes(parser[3])
-                self.parse[id_p] = StoppableThread(target=self.start_parsing,
-                                                   args=(id_p, links, fields,))
-                self.parse[id_p].start()
-                self.parsers_list.get_element(id_p).run_stop()
             elif parser[4] == "Link":
-                links = [parser[2]]
-                fields = self.generate_attributes(parser[3])
-                self.parse[id_p] = StoppableThread(target=self.start_parsing,
-                                                   args=(id_p, links, fields,))
-                self.parse[id_p].start()
-                self.parsers_list.get_element(id_p).run_stop()
+                links = get_ranges_url(parser[2])
+            elif parser[4] == "Sitemap":
+                links = fetch_sitemaps_links(parser[5])
+            self.parse[id_p] = StoppableThread(target=self.start_parsing,
+                                               args=(id_p, links, fields,))
+            self.parse[id_p].start()
+            self.parsers_list.get_element(id_p).run_stop()
 
         QApplication.processEvents()
 
@@ -294,15 +307,15 @@ class MainWindow(QMainWindow):
         if id_p not in self.parse.keys():
             has = next(
                 (i for i in range(2, self.main.count()) if
-                 i and (self.main.widget(i).q_parser.id_p == id_p)),
+                 i and id_p and (self.main.widget(i).q_parser.id_p == id_p)),
                 None)
-
+            print(has)
+            print(id_p)
             if has:
                 self.main.setCurrentIndex(has)
             else:
                 new = False
                 if not id_p:
-
                     new = True
                     q_parser = QParser()
 
@@ -316,6 +329,7 @@ class MainWindow(QMainWindow):
                 parser_edit.thing_changed.connect(self.dea_act_buttons)
                 self.main.addTab(parser_edit, q_parser.name if q_parser.name else "New")
                 self.main.setCurrentIndex(self.main.count() - 1)
+                print(q_parser)
 
     def save_changes_dialog(self, parser_edit, cancel=False):
         """
@@ -324,8 +338,10 @@ class MainWindow(QMainWindow):
         :param cancel:
         :return:
         """
-        path = self.img_path + "/" + str(parser_edit.get_id())+ ".png"
+        path = self.img_path + "/" + str(parser_edit.get_id()) + ".png"
         if not any(parser_edit.changed.values()):
+            if parser_edit.new:
+                return True
             parser_edit.take_screenshot(path)
             self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
             return True
@@ -333,32 +349,45 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel) if cancel else (
                 QMessageBox.Yes | QMessageBox.No), QMessageBox.Yes)
         if res == QMessageBox.Yes:
-            parser_edit.take_screenshot(path)
-            self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
             attrs = parser_edit.get_attributes()
 
             name = parser_edit.get_name()
             url = parser_edit.get_url()
             if parser_edit.new:
-                id_p = self.db.add_parser(name, url, self.formated_attributes(attrs),
-                                          parser_edit.links_type,
-                                          parser_edit.res)
-                parser_edit.q_parser.id_p = id_p
-                parser_edit.new = False
-                new = self.parsers_list.add_element(name, id_p)
-                new.clicked[str, int].connect(self.open_parser_edit)
+                if not any(parser_edit.errors.values()):
+                    id_p = self.db.add_parser(name, url, self.formated_attributes(attrs),
+                                              parser_edit.links_type,
+                                              parser_edit.res)
+                    parser_edit.q_parser.id_p = id_p
+                    parser_edit.new = False
+                    new = self.parsers_list.add_element(name, id_p, url)
+                    new.clicked[str, int].connect(self.open_parser_edit)
+                    new.set_url(url)
+                else:
+                    print("error")
+                    QErrorMessage(self).showMessage('Fix errors(red fields)')
+                    if parser_edit.new:
+                        for i in parser_edit.errors.items():
+                            if i[1]:
+                                parser_edit.show_error(i[0])
+                    return QMessageBox.Cancel if cancel else False
             else:
                 self.db.update_parser(parser_edit.q_parser.id_p, name,
                                       url, self.formated_attributes(attrs),
                                       parser_edit.links_type,
                                       parser_edit.res)
                 id_p = parser_edit.q_parser.id_p
-                self.parsers_list.get_element(id_p).set_name(name)
+                element = self.parsers_list.get_element(id_p)
+                element.set_name(name)
+                element.set_url(url)
             parser_edit.q_parser.name = name
             parser_edit.q_parser.url = url
             parser_edit.q_parser.attributes = attrs
             parser_edit.q_parser.type_p = parser_edit.links_type
             parser_edit.q_parser.links = parser_edit.res
+            path = self.img_path + "/" + str(parser_edit.get_id()) + ".png"
+            parser_edit.take_screenshot(path)
+            self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
             for k in parser_edit.changed.keys():
                 parser_edit.changed[k] = False
             self.apply_button.setEnabled(False)
@@ -372,7 +401,6 @@ class MainWindow(QMainWindow):
     def finalEditAction(self, btn):
         parser_edit = self.main.currentWidget()
         if self.main.currentIndex() == 1:
-
             with open("proxies.txt", "w") as w:
                 w.write(self.proxies_edit.toPlainText().replace("\x00", "\n"))
             return
@@ -401,22 +429,24 @@ class MainWindow(QMainWindow):
                                           parser_edit.links_type,
                                           parser_edit.res)
                     id_p = parser_edit.get_id()
-                    self.parsers_list.get_element(id_p).set_name(parser_edit.get_name())
+                    element = self.parsers_list.get_element(id_p)
+                    element.set_name(parser_edit.get_name())
+                    element.set_url(parser_edit.get_url())
 
                 else:
-
+                    url = parser_edit.get_url()
                     attrs = self.formated_attributes(parser_edit.get_attributes())
-                    id_p = self.db.add_parser(parser_edit.get_name(), parser_edit.get_url(),
+                    id_p = self.db.add_parser(parser_edit.get_name(), url,
                                               attrs, parser_edit.links_type,
                                               parser_edit.res)
-                    new = self.parsers_list.add_element(parser_edit.get_name(), id_p)
+                    new = self.parsers_list.add_element(parser_edit.get_name(), id_p, url)
                     new.clicked[str, int].connect(self.open_parser_edit)
                 if self.test.get(id_p) and self.test[id_p].isAlive():
                     self.test[id_p].kill()
                     self.test[id_p].join()
-                path = self.img_path + "/" + str(parser_edit.get_id())+ ".png"
+                path = self.img_path + "/" + str(parser_edit.get_id()) + ".png"
                 parser_edit.take_screenshot(path)
-                self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
+                self.parsers_list.get_element(id_p).set_image(path)
                 self.main.removeTab(self.main.currentIndex())
                 self.open_parsers_list()
 
@@ -429,7 +459,7 @@ class MainWindow(QMainWindow):
                     id_p = self.db.add_parser(name, url, attrs)
                     parser_edit.q_parser.id_p = id_p
                     parser_edit.new = False
-                    new = self.parsers_list.add_element(name, id_p)
+                    new = self.parsers_list.add_element(name, id_p, url)
                     self.main.setTabText(self.main.currentIndex(), name)
                     new.clicked[str, int].connect(self.open_parser_edit)
                 else:
@@ -438,13 +468,15 @@ class MainWindow(QMainWindow):
                                           url, self.formated_attributes(attrs),
                                           parser_edit.links_type,
                                           parser_edit.res)
-                    self.parsers_list.get_element(id_p).set_name(name)
+                    element = self.parsers_list.get_element(id_p)
+                    element.set_name(parser_edit.get_name())
+                    element.set_url(parser_edit.get_url())
                 parser_edit.q_parser.name = name
                 parser_edit.q_parser.url = url
                 parser_edit.q_parser.attributes = attrs
                 parser_edit.q_parser.type_p = parser_edit.links_type
                 parser_edit.q_parser.links = parser_edit.res
-                path = self.img_path + "/" + str(parser_edit.get_id())+ ".png"
+                path = self.img_path + "/" + str(parser_edit.get_id()) + ".png"
                 parser_edit.take_screenshot(path)
                 self.parsers_list.get_element(parser_edit.get_id()).set_image(path)
                 for k in parser_edit.changed.keys():
@@ -467,8 +499,14 @@ class MainWindow(QMainWindow):
                     if self.test.get(id_p):
                         self.test[id_p].kill()
                         self.test[id_p].join()
+                    if parser_edit.links_type == 'Sitemap':
+                        links = fetch_sitemaps_links(parser_edit.res)
+                    elif parser_edit.links_type == 'Link':
+                        links = get_ranges_url(parser_edit.get_url())
+                    else:
+                        links = parser_edit.links
                     new = StoppableThread(target=self.start_parsing, args=(
-                        parser_edit.get_id(), parser_edit.links, parser_edit.get_attributes(),))
+                        parser_edit.get_id(), links, parser_edit.get_attributes(),))
                     self.parse[parser_edit.get_id()] = new
                     self.parse[id_p].start()
                     self.parsers_list.get_element(id_p).run_stop()
@@ -490,10 +528,10 @@ class MainWindow(QMainWindow):
         :return:
         """
         if value:
-            print(dict(map(lambda x: (x[0], x[1:]),
-                           zip_longest(*(iter(re.findall('"(.*?)"', value)),) * 3))))
-            return dict(map(lambda x: (x[0], x[1:]),
-                            zip_longest(*(iter(re.findall('"(.*?)"', value)),) * 3)))
+            print(dict(map(lambda x: (x[0], tuple(x[1:-1] + (x[-1] == 'True',))),
+                           zip_longest(*(iter(re.findall('"(.*?)"', value)),) * 4))))
+            return dict(map(lambda x: (x[0], tuple(x[1:-1] + (x[-1] == 'True',))),
+                            zip_longest(*(iter(re.findall('"(.*?)"', value)),) * 4)))
         else:
             return {}
 
@@ -510,7 +548,7 @@ class MainWindow(QMainWindow):
         :return:
         """
         return "".join(
-            map(lambda x: '"{}""{}""{}"'.format(x[0], x[1][0], x[1][1]),
+            map(lambda x: '"{}""{}""{}""{}"'.format(x[0], x[1][0], x[1][1], x[1][2]),
                 attrs.items()))
 
     def closeEvent(self, event):
@@ -524,56 +562,103 @@ class MainWindow(QMainWindow):
         parser = Parser()
         fields = tuple(map(tuple, attrs.values()))
         print(fields)
-        if parser_edit.links:
-
-            for url in parser_edit.links[:5]:
+        urlm = parser_edit.get_url()
+        if attrs:
+            # if parser_edit.links:
+            if parser_edit.links_type == 'Link':
+                links = get_ranges_url(urlm)[:5]
+            else:
+                links = parser_edit.links[:5]
+                if urlm not in links:
+                    links[-1] = urlm
+            for url in links:
                 parser_edit.add_logs(url)
-                parser_edit.add_logs(
-                    "\n".join(map(lambda x: "\t" + str(x[0]) + ": " + str(x[1]),
-                                  zip(attrs.keys(),
-                                      parser.parse_url(url, fields)))))
+                parsed = parser.parse_url(url, fields)
+                if parsed and parsed[0] not in Parser.ERRORS:
+                    if filter(lambda x: len(x) > 1, parsed):
+                        ma = len(max(parsed, key=lambda x: len(x)))
+                        for d in range(ma):
+                            data = []
+                            for j in parsed:
+                                if len(j) == 1:
+                                    data.append(j[0])
+                                elif len(j) < d:
+                                    data.append('')
+                                else:
+                                    data.append(j[d])
+                            parser_edit.add_logs(
+                                "\n".join(map(lambda x: "\t" + str(x[0]) + ": " + str(x[1]),
+                                              zip(attrs.keys(),
+                                                  data))))
+                    else:
+                        parser_edit.add_logs(
+                            "\n".join(map(lambda x: "\t" + str(x[0]) + ": " + str(x[1]),
+                                          zip(attrs.keys(),
+                                              parsed))))
+                elif parsed:
+                    parser_edit.add_logs("<pre style='color: red'>\t" + parsed[0] + "</pre>")
                 # Задержка, чтобы Log(QTextBrowser) успевал обновляться
                 QTest.qWait(1)
 
+            # else:
+            #
+            #     parsed = parser.parse_url(urlm, fields)
+            #     parser_edit.add_logs("\n".join(map(lambda x: str(x[0]) + ": " + str(x[1]),
+            #                                        zip(attrs.keys(),
+            #                                            parsed))))
         else:
-
-            url = parser_edit.get_url()
-
-            print(zip(attrs.keys(), parser.parse_url(url, fields)))
-            parser_edit.add_logs("\n".join(map(lambda x: str(x[0]) + ": " + str(x[1]),
-                                               zip(attrs.keys(),
-                                                   parser.parse_url(url, fields)))))
+            parser_edit.add_logs("Create attrs")
         del self.test[id_p]
 
     def start_parsing(self, id_p, urls, fields):
-        print(len(urls))
+        print(urls)
         element = self.parsers_list.get_element(id_p)
         try:
             workbook = xlsxwriter.Workbook(self.res_path + '/' + str(id_p) + '.xlsx')
             worksheet = workbook.add_worksheet()
             worksheet.write(0, 0, "url")
-            for p, key in enumerate(fields.keys()):
-                worksheet.write(0, p + 1, key)
+            for p, key in enumerate(fields.keys(), 1):
+                worksheet.write(0, p, key)
             with open("proxies.txt", "r") as r:
                 proxies = r.read().split()
             parser = Parser(proxies=proxies)
             self.parsers_list.get_element(id_p).set_links_count(len(urls))
-            for ind, i in enumerate(urls, 1):
+            ind = 1
+            for urln, i in enumerate(urls, 1):
                 res = parser.parse_url(i, fields.values())
                 print(res)
-                self.parsers_list.get_element(id_p).update_progress(ind)
-                worksheet.write(ind, 0, i)
-                for c, j in enumerate(res, 1):
-                    worksheet.write(ind, c, j)
-                if ind % 10 == 0:
-                    sleep(1)
+                self.parsers_list.get_element(id_p).update_progress(urln)
+                if filter(lambda x: len(x) > 1, res):
+                    ma = len(max(res, key=lambda x: len(x)))
+                    for d in range(ma):
+                        data = []
+                        for j in res:
+                            if len(j) == 1:
+                                data.append(j[0])
+                            elif len(j) < d:
+                                data.append('')
+                            else:
+                                data.append(j[d])
+                        worksheet.write(ind, 0, i)
+                        for c, j in enumerate(data, 1):
+                            worksheet.write(ind, c, j)
+                        ind += 1
+                        if ind % 10 == 0:
+                            sleep(1)
+                else:
+                    worksheet.write(ind, 0, i)
+                    for c, j in enumerate(res, 1):
+                        worksheet.write(ind, c, j)
+                    ind += 1
+                    if ind % 10 == 0:
+                        sleep(1)
             path = self.res_path + "/" + str(id_p) + ".xlsx"
             db = DataBase(self.db_path)
             db.update_parser(id_p, respath=path)
             db.close()
             element.set_result(path)
-        finally:
             workbook.close()
+        finally:
             element.hide_progress()
             element.run_stop()
             for childQWidget in self.findChildren(QWidget):

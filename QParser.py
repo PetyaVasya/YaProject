@@ -1,15 +1,20 @@
 from PyQt5.QtGui import QPainter, QPixmap, QFontMetrics
+from PyQt5.QtTest import QTest
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QHBoxLayout, QVBoxLayout, QSizePolicy, QLineEdit, QButtonGroup, QGridLayout, QTextBrowser, \
     QComboBox, QScrollArea, QFileDialog, QStyle, QProgressBar, QStyleOption, QRadioButton, \
-    QStackedWidget, QTextEdit, QTreeWidget, QDialog, QMessageBox, QFrame
+    QStackedWidget, QTextEdit, QTreeWidget, QDialog, QMessageBox, QFrame, QCheckBox, \
+    QAbstractItemView, QToolButton, QHeaderView
+from functools import reduce
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QUrl, QEvent
 import requests
 import re
 import os
+import lxml.etree as etree
 
-from Tools import LoadingWidget, CutLabel
+from Tools import LoadingWidget, CutLabel, CustomTreeWidget, check_url, fetch_site, StoppableThread, \
+    get_sitemaps_paths, fetch_sitemaps_links, get_ranges_url
 
 
 class WebEnginePage(QWebEnginePage):
@@ -89,8 +94,9 @@ class ParsersList(QWidget):
         return next((self.layout_v.itemAt(i).widget() for i in range(self.layout_v.count()) if
                      self.layout_v.itemAt(i).widget().id_p == id_p), None)
 
-    def add_element(self, name, id_p, respath=None):
+    def add_element(self, name, id_p, url, respath=None):
         new = ParserElement(name=name, id_p=id_p, respath=respath, parent=self)
+        new.set_url(url)
         self.delete_buttons.addButton(new.delete, id_p)
         self.parse_buttons.addButton(new.run, id_p)
         self.layout_v.addWidget(new, alignment=Qt.AlignTop)
@@ -311,6 +317,11 @@ class ParserEdit(QWidget):
     incorrect_url_error = 7
 
     def __init__(self, q_parser, new, parent=None):
+        '''
+        :param q_parser:
+        :param new:
+        :param parent:
+        '''
         super(ParserEdit, self).__init__(parent)
         self.q_parser = q_parser
         self.foc_attr_value = None
@@ -384,10 +395,11 @@ class ParserEdit(QWidget):
         ''')
         self.fields = FieldsPull(attributes=self.q_parser.attributes, parent=self, e_filter=self)
         self.fields.setObjectName("attributes")
-        self.fields.field_changed.connect(lambda: print("changes"))
         self.fields.installEventFilter(self)
         self.fields.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.fields.field_changed.connect(lambda: self.send_changed(self.attributes_changed))
+        self.fields.field_extended.connect(lambda: self.send_changed(self.attributes_changed))
+        self.fields.field_extended.connect(lambda: print('field full'))
         self.fields.error_created.connect(
             lambda: self.errors.__setitem__(self.attribute_error, True))
         self.fields.errors_fixed.connect(
@@ -418,9 +430,11 @@ class ParserEdit(QWidget):
                     self.res.strip().strip("\n").strip("\x00").split("\n"))))
                 self.set_links(self.links)
             elif self.links_type == "Sitemap":
-                pass
+                self.links = fetch_sitemaps_links(self.res)[:100]
+                self.set_links(self.links)
             self.url_edit.setText(self.q_parser.url)
-            self.open_url(self.q_parser.url)
+            self.open_browser()
+        self.view.loadFinished.connect(lambda: self.view.setZoomFactor(0.5))
         print(self.links_type)
         self.setStyleSheet(
             '''
@@ -440,21 +454,15 @@ class ParserEdit(QWidget):
         return self.fields.get_attributes()
 
     def open_url(self, url):
+        print(url)
         self.view.setUrl(QUrl(url))
-        QTimer.singleShot(1000, lambda: self.view.setZoomFactor(0.5))
-
-    def check_url(self, url):
-        try:
-            requests.get(url)
-            return True
-        except Exception as e:
-            return False
 
     def open_browser(self):
-        if self.check_url(self.get_url()):
+        url = check_url(self.get_url())
+        if url:
             normalize_widget(self.url_edit)
             self.errors[self.incorrect_url_error] = False
-            self.open_url(self.get_url())
+            self.open_url(url)
         else:
             self.show_error(self.incorrect_url_error)
 
@@ -484,17 +492,45 @@ class ParserEdit(QWidget):
                     res += `[${item}='${element.getAttribute(item)}']`;
                 });
                 return res;
-            };'''
-            self.view.page().runJavaScript(
-                func + 'cssSelectorByPos({}, {});'.format(event.pos().x() * 2,
-                                                          event.pos().y() * 2),
-                self.js_callback)
+            };
+            '''
+            func2 = '''
+            function fullCssSelectorByPos(x, y){
+                var elements = document.elementsFromPoint(x, y);
+                var res = '';
+				elements.reverse().slice(0,-1).forEach(function(item, i, arr){
+					if ((item.tagName != 'BODY') & (item.tagName != 'HTML') &
+					 (item.tagName != 'HEAD') & (item.tagName != 'HEADER')){
+                    	res += item.tagName;
+						if (item.id)
+							res += `#` + item.id;
+						item.classList.forEach(function(item, i, arr){
+                            res += `.` + item;
+                        });
+						res += '>';
+					}
+				});
+				return res + cssSelectorByPos(x, y);
+            };
+            '''
+
+            if event.modifiers() == Qt.ShiftModifier:
+                self.view.page().runJavaScript(
+                    func + func2 + 'fullCssSelectorByPos({}, {});'.format(event.pos().x() * 2,
+                                                              event.pos().y() * 2),
+                    self.js_callback)
+            else:
+                self.view.page().runJavaScript(
+                    func + 'cssSelectorByPos({}, {});'.format(event.pos().x() * 2,
+                                                              event.pos().y() * 2),
+                    self.js_callback)
         return super().eventFilter(source, event)
 
     def js_callback(self, result):
         if self.foc_attr_value:
             self.foc_attr_value.setText(result)
             self.foc_attr_value.editingFinished.emit()
+            self.foc_attr_value.textChanged.emit(result)
             self.foc_attr_value = None
         else:
             keys = set(
@@ -506,6 +542,7 @@ class ParserEdit(QWidget):
     def create_log_widget(self):
         if not self.logs:
             self.logs = QTextBrowser(self)
+            self.logs.setStyleSheet("color: black")
             self.logs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             self.layout_v.addWidget(self.logs, 20, Qt.AlignBottom)
         else:
@@ -539,7 +576,7 @@ class ParserEdit(QWidget):
             elif self.links_type == "Links":
                 self.changed[self.links_changed] = "\n".join(self.res) != self.q_parser.links
             elif self.links_type == "Sitemap":
-                pass
+                self.changed[self.links_changed] = self.res != self.q_parser.links
 
     def check_error(self, type_p):
         if type_p == self.name_changed:
@@ -576,6 +613,12 @@ class ParserEdit(QWidget):
                 self.links = tuple(filter(lambda x: x, set(
                     self.res.split("\n"))))
                 self.set_links(self.links)
+            elif self.links_type == "Sitemap":
+                self.links = fetch_sitemaps_links(self.res)[:100]
+                self.set_links(self.links)
+            elif self.links_type == "Link":
+                self.links = []
+                self.set_links(self.links)
 
     def links_from_file(self, file):
         if file:
@@ -584,10 +627,13 @@ class ParserEdit(QWidget):
                 self.set_links(self.links)
 
     def set_links(self, links):
+        url = self.url_edit.text()
+        self.links_box.clear()
         if links:
             self.url_edit.setText(links[0])
-            self.links_box.clear()
             self.links_box.addItems(links)
+        else:
+            self.url_edit.setText(url)
 
     def take_screenshot(self, path):
         self.view.grab().scaled(200, 200, Qt.IgnoreAspectRatio, Qt.SmoothTransformation).save(path, b'PNG')
@@ -598,6 +644,7 @@ class FieldsPull(QWidget):
     Класс, отвечающий за поля атрибутов для более простого взаимодействия с ними.
     """
     field_changed = pyqtSignal(int, QWidget)
+    field_extended = pyqtSignal(QWidget)
     error_created = pyqtSignal(int, QWidget)
     errors_fixed = pyqtSignal()
     key_exists_error = 1
@@ -616,6 +663,8 @@ class FieldsPull(QWidget):
 
     def initUI(self):
         self.field_changed[int, QWidget].connect(self.check_error)
+        self.field_extended.connect(lambda x: self.check_error(FieldEdit.value_changed, x))
+        self.field_extended.connect(lambda x: self.check_error(FieldEdit.type_changed, x))
         self.error_created[int, QWidget].connect(
             lambda x, y: self.errors.setdefault(y, set()).add(x))
         self.body = QVBoxLayout(self)
@@ -642,10 +691,10 @@ class FieldsPull(QWidget):
         return tuple(self.body.itemAt(item).widget() for item in range(self.body.count()))
 
     def get_attributes(self):
-        return dict(field.get_item() for field in self.get_all_widgets()[:-1])
+        return dict(field.get_item() for field in self.get_all_widgets() if field.is_extended())
 
     def get_keys(self):
-        return tuple(field.get_item()[0] for field in self.get_all_widgets()[:-1])
+        return tuple(field.get_item()[0] for field in self.get_all_widgets() if field.is_extended())
 
     def create_field(self, attribute=None):
         if self.body.count() and attribute:
@@ -665,6 +714,7 @@ class FieldsPull(QWidget):
 
     def create_space(self, last):
         last.edit_finished.disconnect(self.create_space)
+        self.field_extended.emit(last)
         return self.create_field()
 
     def field_change(self, type_p, field):
@@ -681,18 +731,21 @@ class FieldsPull(QWidget):
             if self.exists_key(field.get_key()):
                 self.show_error(self.key_exists_error, field)
             else:
+                print('fixed key_exists_error')
                 normalize_widget(field.key)
-                self.remove_error(type_p, field)
+                self.remove_error(self.key_exists_error, field)
         elif type_p == FieldEdit.value_changed:
             if field.get_value():
+                print('fixed value_empty_error')
                 normalize_widget(field.value)
-                self.remove_error(type_p, field)
+                self.remove_error(self.value_empty_error, field)
             else:
                 self.show_error(self.value_empty_error, field)
         elif type_p == FieldEdit.type_changed:
             if field.get_type():
+                print('fixed type_empty_error')
                 normalize_widget(field.value_type)
-                self.remove_error(type_p, field)
+                self.remove_error(self.type_empty_error, field)
             else:
                 self.show_error(self.type_empty_error, field)
         elif type_p == FieldEdit.field_deleted:
@@ -704,20 +757,27 @@ class FieldsPull(QWidget):
     def show_error(self, type_p, field):
         if type_p == self.type_empty_error:
             errorize_widget(field.value_type)
+            print('type empty')
+            self.error_created[int, QWidget].emit(type_p, field)
         elif type_p == self.value_empty_error:
             errorize_widget(field.value)
+            print('value empty')
+            self.error_created[int, QWidget].emit(type_p, field)
         elif type_p == self.key_exists_error:
             errorize_widget(field.key)
-        self.error_created[int, QWidget].emit(type_p, field)
+            print('key exists')
+            self.error_created[int, QWidget].emit(type_p, field)
 
     def remove_error(self, type_p, field):
         if self.errors.get(field):
-            if len(self.errors[field]) > 1:
-                self.errors[field].remove(type_p)
-            else:
-                self.errors.pop(field)
-        if not self.errors:
-            self.errors_fixed.emit()
+            if type_p in self.errors[field]:
+                if len(self.errors[field]) > 1:
+                    self.errors[field].remove(type_p)
+                else:
+                    self.errors.pop(field)
+            if not self.errors:
+                print('fieldspull fixed')
+                self.errors_fixed.emit()
 
 
 class FieldEdit(QWidget):
@@ -730,6 +790,7 @@ class FieldEdit(QWidget):
     value_changed = 2
     type_changed = 3
     field_deleted = 4
+    find_type_changed = 5
 
     def __init__(self, values=None, parent=None):
         super(FieldEdit, self).__init__(parent)
@@ -746,13 +807,16 @@ class FieldEdit(QWidget):
         self.value.setStyleSheet('border-bottom: 1px solid white;')
         self.value.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.value.editingFinished.connect(self.check_full)
+        self.multiple = None
         self.value.setPlaceholderText("Value")
         self.value.setObjectName("value")
         self.body.addWidget(self.key, 20)
         self.body.addWidget(self.value, 80)
         self.delete_btn = None
         self.value_type = None
+        self.value_type_edit = None
         self.edit_finished.connect(self.init_after_edit)
+        self.extended = False
         if values:
             self.init_after_edit()
             self.set_values(values[0], *values[1])
@@ -764,19 +828,33 @@ class FieldEdit(QWidget):
         return self.value.text()
 
     def get_type(self):
-        if self.value_type:
+        if self.is_extended():
+            print(self.value_type.currentText())
             return self.value_type.currentText()
         else:
             return ""
 
-    def get_item(self):
-        return self.get_key(), (self.get_value(), self.get_type())
+    def get_find_type(self):
+        return self.multiple.isChecked()
 
-    def set_values(self, key, value, type_p):
+    def get_item(self):
+        return self.get_key(), (self.get_value(), self.get_type(), self.get_find_type())
+
+    def set_values(self, key, value, type_p, find_type=False):
         self.send_finished()
         self.key.setText(key)
         self.value.setText(value)
         self.value_type.setCurrentText(type_p)
+        self.set_find_type(find_type == True)
+
+    def set_find_type(self, multiple):
+        if self.is_extended():
+            self.multiple.setChecked(multiple)
+            return True
+        return False
+
+    def is_extended(self):
+        return self.extended
 
     def init_after_edit(self):
         """
@@ -784,11 +862,14 @@ class FieldEdit(QWidget):
          value
         :return:
         """
-        self.add_select_type_box()
-        self.add_delete_btn()
-        self.edit_finished.disconnect(self.init_after_edit)
-        self.key.textChanged.connect(lambda: self.send_changed(self.key_changed))
-        self.value.textChanged.connect(lambda: self.send_changed(self.value_changed))
+        if not self.extended:
+            self.add_select_type_box()
+            self.add_multiple_box()
+            self.add_delete_btn()
+            self.edit_finished.disconnect(self.init_after_edit)
+            self.key.textChanged.connect(lambda: self.send_changed(self.key_changed))
+            self.value.textChanged.connect(lambda: self.send_changed(self.value_changed))
+            self.extended = True
 
     def add_delete_btn(self):
         if not self.delete_btn:
@@ -799,6 +880,7 @@ class FieldEdit(QWidget):
             self.delete_btn.setStyleSheet('''border-radius:55px;font-size:24px;color:#FF0266;
                 ''')
             return self.delete_btn
+        return False
 
     def delete(self):
         self.setParent(None)
@@ -807,7 +889,9 @@ class FieldEdit(QWidget):
     def add_select_type_box(self):
         if not self.value_type:
             self.value_type = QComboBox(self)
-            self.value_type.setLineEdit(QLineEdit(self))
+            self.value_type_edit = QLineEdit(self)
+            self.value_type_edit.setPlaceholderText('Select')
+            self.value_type.setLineEdit(self.value_type_edit)
             self.value_type.setStyleSheet('''
                 background-color:rgb(30, 30, 30);
                 border-radius:5px;
@@ -815,9 +899,33 @@ class FieldEdit(QWidget):
                 border-bottom: 1px solid white;
              ''')
             self.set_value_types()
-            self.value_type.activated.connect(lambda: self.send_changed(self.type_changed))
+            self.value_type_edit.textChanged.connect(lambda: self.send_changed(self.type_changed))
             self.body.addWidget(self.value_type, 20)
             return self.value_type
+        return False
+
+    def add_multiple_box(self):
+        if not self.multiple:
+            self.multiple = QCheckBox(self)
+            self.multiple.setStyleSheet('''
+                          QCheckBox::indicator:checked
+                          {
+                          width:20px;
+                          height:30px;
+                            image: url(./icons/multiple.png);
+                          }
+                          QCheckBox::indicator:unchecked
+                          {
+                          width:13px;
+                          height:30px;
+                          image-position:center;
+                            image: url(./icons/single.png);
+                          }
+                    ''')
+            self.multiple.toggled.connect(lambda: self.send_changed(self.find_type_changed))
+            self.body.addWidget(self.multiple, 10)
+            return True
+        return False
 
     def check_full(self):
         if self.get_key() or self.get_value():
@@ -881,6 +989,7 @@ class UploadLinksWidget(QDialog):
         self.initUI(*args)
 
     def initUI(self, type_p=None, data=None):
+        self.sitemap_action = None
         edits_css = '''
                         background-color:rgb(30, 30, 30);
                         border-radius:5px;
@@ -893,6 +1002,7 @@ class UploadLinksWidget(QDialog):
             }
         ''')
         btn_css = '''border-radius:5px;font-size:14px;background-color:#BB86FC;color:black;
+                    width:50px;height:30px;margin-left:5px;
                 '''
         btn_css2 = '''border-radius:5px;
                             font-size:14px;
@@ -901,7 +1011,6 @@ class UploadLinksWidget(QDialog):
                             width:50px;
                             height:30px;
                             '''
-        self.setGeometry(300, 300, 300, 300)
         self.body = QVBoxLayout(self)
         self.main = QWidget()
         self.links_type_layout = QHBoxLayout(self)
@@ -918,6 +1027,9 @@ class UploadLinksWidget(QDialog):
         self.links = QWidget()
         self.sitemap = QWidget()
 
+        self.interface.addWidget(self.links)
+        self.interface.addWidget(self.sitemap)
+
         self.links_layout = QVBoxLayout(self)
         self.links.setLayout(self.links_layout)
         self.links_edit = QTextEdit(self)
@@ -926,6 +1038,8 @@ class UploadLinksWidget(QDialog):
         self.file_layout = QHBoxLayout(self)
         file = None
         self.btn_links.setChecked(True)
+        mask = ""
+        url = ""
         if type_p:
             if type_p == "Links":
                 self.links_edit.setText(data)
@@ -933,6 +1047,10 @@ class UploadLinksWidget(QDialog):
                 file = data
             elif type_p == "Sitemap":
                 self.btn_sitemap.setChecked(True)
+                self.interface.setCurrentIndex(1)
+                data = data.split(";")
+                url = data[0]
+                mask = data[1]
             self.type_p = type_p
         else:
             self.type_p = ""
@@ -948,18 +1066,42 @@ class UploadLinksWidget(QDialog):
         self.opened_file.setText(file if file else "Choose file")
 
         self.sitemap_layout = QVBoxLayout(self)
+        self.url = QHBoxLayout(self)
         self.base_url = QLineEdit(self)
         self.base_url.setPlaceholderText("Index Url")
-        self.sitemap_layout.addWidget(self.base_url)
-        self.sitemap_tree = QTreeWidget(self)
-        self.sitemap_layout.addWidget(self.sitemap_tree)
+        self.base_url.setText(url)
+        self.base_url.setStyleSheet(edits_css)
+        self.load = QPushButton("OK", self)
+        self.load.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.load.setStyleSheet(btn_css)
+        self.load.clicked.connect(self.open_url)
+        self.reload = QPushButton(self)
+        self.reload.setIcon(self.style().standardIcon(getattr(QStyle, 'SP_BrowserReload')))
+        self.reload.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.reload.setStyleSheet(btn_css)
+        self.reload.clicked.connect(lambda: self.open_url(True))
+        self.url.addWidget(self.base_url, 80)
+        self.url.addWidget(self.load, 10)
+        self.url.addWidget(self.reload, 10)
+        self.url_mask = QLineEdit(self)
+        self.url_mask.setText(mask)
+        self.url_mask.setPlaceholderText("Url mask")
+        self.url_mask.setStyleSheet(edits_css)
+        self.sitemap_layout.addLayout(self.url, 10)
+        self.sitemap_layout.addWidget(self.url_mask, 10)
+        self.sitemap_tree = Sitemap(mpath="", parent=self)
+        # self.sitemap_tree.hide()
+        self.sitemap_tree.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.loading = LoadingWidget(self.sitemap_tree)
+        self.loading.hide()
+        self.sitemap_layout.addWidget(self.sitemap_tree, 80)
+        self.sitemap_layout.setContentsMargins(0, 0, 0, 0)
+        # self.sitemap_layout.addWidget(self.loading)
         self.sitemap.setLayout(self.sitemap_layout)
-
-        self.interface.addWidget(self.links)
-        self.interface.addWidget(self.sitemap)
 
         self.final = QButtonGroup()
         self.final.addButton(QPushButton("OK", self))
+        self.final.addButton(QPushButton("Clear", self))
         self.final.addButton(QPushButton("Cancel", self))
 
         self.final.buttonClicked.connect(self.close_dialog)
@@ -967,20 +1109,19 @@ class UploadLinksWidget(QDialog):
         self.setLayout(self.body)
         self.btn_group.buttonClicked.connect(self.change_interface)
         self.bar = QHBoxLayout(self)
+        self.bar.setAlignment(Qt.AlignLeft)
         for btn in self.final.buttons():
-            self.bar.addWidget(btn)
+            self.bar.addWidget(btn, alignment=Qt.AlignLeft)
             btn.setStyleSheet(btn_css)
+            # btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.body.addLayout(self.bar)
-        self.setFixedSize(300, 300)
+        self.setGeometry(300, 300, 500, 500)
+        if url:
+            self.open_url()
 
     def change_interface(self, btn):
         id_p = self.btn_group.id(btn)
-        if id_p == 1:
-            QMessageBox.question(self, "After 21:00", "After 21:00", QMessageBox.Yes,
-                                 QMessageBox.Yes)
-            self.btn_group.button(0).setChecked(True)
-        else:
-            self.interface.setCurrentIndex(id_p)
+        self.interface.setCurrentIndex(id_p)
 
     def get_file(self):
         self.res = QFileDialog.getOpenFileName(self, 'Выберите файл с ссылками', '')[0]
@@ -994,39 +1135,175 @@ class UploadLinksWidget(QDialog):
             if self.type_p == "Links":
                 self.res = self.links_edit.toPlainText()
             else:
-                pass
+                self.res = ";".join((self.base_url.text(), self.url_mask.text()))
+                self.sitemap_tree.save()
+            self.accept()
+        elif btn.text() == "Clear":
+            self.type_p = "Link"
+            self.res = ""
             self.accept()
         else:
             self.reject()
+        if self.sitemap_action:
+            self.sitemap_action.kill()
+            self.sitemap_action.join()
 
     def get_result(self):
         return self.type_p, self.res
 
+    def resizeEvent(self, event):
+        self.loading.resize(self.sitemap_tree.size())
+        event.accept()
 
-class SitemapWindow(QWidget):
-    """
-        After 21:00
-    """
+    def open_url(self, reload=False):
+        url = self.base_url.text()
+        if check_url(url):
+            self.loading.show()
+            path = './sitemaps/' + url.split("//")[1].split("/")[0]
+            if not reload and os.path.exists(path + ".xml"):
+                if self.sitemap_action and self.sitemap_action.isAlive():
+                    self.sitemap_action.kill()
+                    self.sitemap_action.join()
+                self.sitemap_action = StoppableThread(target=self.update_sitemap,
+                                                       args=[path + "_small.xml"])
+                self.sitemap_action.start()
+            else:
+                if self.sitemap_action and self.sitemap_action.isAlive():
+                    self.sitemap_action.kill()
+                    self.sitemap_action.join()
+                self.sitemap_action = StoppableThread(target=self.sitemap_parse,
+                                                       args=(url, './sitemaps'))
+                self.sitemap_action.start()
 
-    def __init__(self, mpath=None):
-        super().__init__()
+    def update_sitemap(self, path):
+        try:
+            self.sitemap_tree.set_xml(path)
+        finally:
+            self.loading.hide()
+            self.update()
+
+    def sitemap_parse(self, url, path):
+        try:
+            fetch_site(url, path)
+            sitemap_path = path + '/' + url.split("//")[1].split("/")[0] + "_small.xml"
+            self.sitemap_tree.set_xml(sitemap_path)
+        finally:
+            self.loading.hide()
+            self.update()
+
+    def closeEvent(self, event):
+        if self.sitemap_action:
+            self.sitemap_action.kill()
+            self.sitemap_action.join()
+
+
+class Sitemap(QWidget):
+
+    def __init__(self, mpath=None, parent=None):
+        super().__init__(parent)
+        self.mpath = mpath
         self.initUI(mpath)
 
     def initUI(self, mpath):
-        self.body = QVBoxLayout(self)
-        self.setLayout(self.body)
-        self.tree = QTreeWidget(self)
-        self.body.addWidget(self.tree)
+        edits_css = '''
+                        background-color:rgb(30, 30, 30);
+                        border-radius:5px;
+                        border: 1px solid white;
+                        border-bottom: 1px solid white;
+                        '''
+        xml = ""
         if mpath:
-            self.unparse_tree(mpath)
-        else:
-            self.tree.hide()
+            with open(mpath, "r") as r:
+                xml = r.read()
+        self.menu = QButtonGroup(self)
+        self.body = QVBoxLayout(self)
+        self.top = QHBoxLayout(self)
+        self.up = QToolButton(self)
+        self.down = QToolButton(self)
+        self.up.setArrowType(Qt.UpArrow)
+        self.down.setArrowType(Qt.DownArrow)
+        self.menu.addButton(self.up)
+        self.menu.addButton(self.down)
+        self.checked = QCheckBox(self)
+        self.find_edit = QLineEdit(self)
+        self.find_edit.setStyleSheet(edits_css)
+        self.find_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        for button in self.menu.buttons():
+            self.top.addWidget(button)
+            button.setStyleSheet('width:1px;background:transparent;')
+            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.top.addWidget(self.find_edit, 70)
+        self.top.addWidget(self.checked, 10)
+        self.body.addLayout(self.top)
+        self.tree = CustomTreeWidget(xml)
+        self.tree.setStyleSheet(edits_css)
+        self.body.addWidget(self.tree)
+        self.selected = []
+        self.find_edit.textChanged.connect(self.select)
+        self.menu.buttonClicked.connect(self.next_selected)
+        self.checked.clicked.connect(self.change_checked)
+        self.select("")
+        # self.tree.setColumnWidth(0, self.tree.width() // 2)
+        self.tree.header().setSectionResizeMode(QHeaderView.ResizeToContents)
 
-    def unparse_tree(self, path):
-        pass
+    def select(self, selector):
+        self.selected = self.tree.findItems(selector, Qt.MatchContains | Qt.MatchRecursive)
+        self.current = 0
+        self.checked.setChecked(any(map(lambda x: x.checkState(0) == Qt.Checked, self.selected)))
 
-    def grab_links(self, url):
-        pass
+    def next_selected(self, btn):
+        if self.selected:
+            if btn.arrowType() == Qt.UpArrow:
+                self.current -= 1
+            elif btn.arrowType() == Qt.DownArrow:
+                self.current += 1
+            self.current = (self.current + len(self.selected)) % len(self.selected)
+            print(self.current)
+            now = self.selected[self.current]
+            to_expand = now.parent()
+            while to_expand:
+                to_expand.setExpanded(True)
+                to_expand = to_expand.parent()
+                self.tree.update()
+                QTest.qWait(1)
+            self.tree.setCurrentItem(now)
+            self.tree.scrollToItem(now, QAbstractItemView.PositionAtCenter)
+
+    def change_checked(self, checked):
+        for i in self.selected:
+            if i.text(0) != "Link":
+                i.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+
+    def save(self):
+        items = self.tree.all_checked_items()
+        print(items)
+        with open(self.mpath, mode="r") as r:
+            a = ['"False"', '"True"']
+            new = re.sub(*(a if not items[0] else a[::-1]), r.read())
+        with open(self.mpath, mode="w") as w:
+            w.write(new)
+        doc = etree.parse(self.mpath)
+        for i in items[1]:
+            if i.text(0) != "Link":
+                if i.text(0) == "Links":
+                    link = "links"
+                else:
+                    link = '*[@name="{}"]'.format(i.text(0).lower())
+                to_expand = i.parent()
+                while to_expand:
+                    link = ('*[@name="{}"]/' + link).format(to_expand.text(0).lower())
+                    to_expand = to_expand.parent()
+                find = doc.xpath('//' + link)
+                find[0].attrib['checked'] = str(items[0])
+        doc.write(self.mpath)
+
+    def set_xml(self, path):
+        if path:
+            with open(path, "r") as r:
+                xml = r.read()
+            self.mpath = path
+            self.tree.set_xml(xml)
+            self.select("")
 
 
 def normalize_widget(widget):
