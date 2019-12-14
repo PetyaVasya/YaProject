@@ -35,12 +35,12 @@ class LoadingWidget(QWidget):
         painter.begin(self)
         painter.setRenderHint(QPainter.HighQualityAntialiasing)
         painter.fillRect(QRect(0, 0, self.width() * 2, self.height()),
-                         QBrush(QColor(255, 255, 255, 127)))
+                         QBrush(QColor(17, 17, 17, 127)))
         painter.setPen(QPen(Qt.NoPen))
 
         for i in range(6):
             if (self.counter / 5) % 6 == i:
-                painter.setBrush(QBrush(QColor(127, 255, 127)))
+                painter.setBrush(QBrush(QColor(3, 218, 197)))
             else:
                 painter.setBrush(QBrush(QColor(127, 127, 127)))
             painter.drawEllipse(
@@ -58,7 +58,8 @@ class LoadingWidget(QWidget):
     def timerEvent(self, event):
 
         self.counter += 1
-        self.update()
+        if (self.counter % 5) == 0:
+            self.update()
 
     def resizeEvent(self, event):
         self.resize(self.parent().size())
@@ -238,11 +239,35 @@ class CustomTreeWidget(QTreeWidget):
 
     def __init__(self, xml):
         QTreeWidget.__init__(self)
+        self.initUI(xml)
+
+    def initUI(self, xml):
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setHeaderLabels(['Title', 'Url'])
         self.set_xml(xml)
         self.itemChanged.connect(self.handleChanged)
         self.itemClicked.connect(self.findd)
+        self.header().setStyleSheet('''
+            QHeaderView::section:first{
+                background:#121212;
+                color:white;
+                border-top:none;
+                border-left:none;
+                border-right:none;
+                padding-left:10px;
+            }
+            QHeaderView::section{
+                padding-left:10px;
+                background:#121212;
+                color:white;
+                border-top:none;
+                border-left:1px solid white;
+                border-right:none;
+            }
+            QHeaderView:{
+                border: none;
+            }
+        ''')
 
     def handleChanged(self, item, column):
         if len(self.selectedItems()) > 1:

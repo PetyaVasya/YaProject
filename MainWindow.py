@@ -58,7 +58,8 @@ class MainWindow(QMainWindow):
                     font-size:14px;
                     background-color:#BB86FC;
                     width:100px;
-                    height:30px'''
+                    height:30px;
+                    border:0px;'''
         self.ok_button = QPushButton("OK", self)
         self.test_button = QPushButton("Test", self)
         self.run_button = QPushButton("Run", self)
@@ -77,7 +78,7 @@ class MainWindow(QMainWindow):
             button.setStyleSheet(btn_css)
         self.init_parsers_list()
         self.init_proxies_page()
-        self.setStyleSheet('''QMainWindow{background-color: #121212;}
+        self.setStyleSheet('''QMainWindow{background-color: #121212;border:0px;}
                         QDialog{
                             background-color: #121212;
                         }
@@ -85,11 +86,25 @@ class MainWindow(QMainWindow):
                             color: white;
                             font-size:14px;
                         }
+                        CustomTabWidget{background:#121212;border:0px;}
+                        CustomTabWidget>QWidget{background:#121212;border:0px;}
+                        CustomTabWidget>QWidget>QWidget{background:#121212;border:0px;}
+                        QScrollBar:vertical, QScrollBar::handle:vertical,QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical, QScrollBar::left-arrow:vertical,
+            QScrollBar::right-arrow:vertical{
+                border: 1px solid white;
+                background: #121212;
+            }
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical{
+                background: #303030;
+                border:1px solid white;
+            }
                             ''')
         self.main.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.main.setStyleSheet('''
-                QTabWidget>QWidget>QWidget{
-                background: #121212;
+                QTabWidget{
+                border:0px;
                 }
                 QTabWidget::tab-bar {
                     left: 0; 
@@ -133,19 +148,26 @@ class MainWindow(QMainWindow):
         self.main.currentChanged.connect(self.bar_opened)
         self.main.tabCloseRequested.connect(self.close_tab)
         self.statusBar().setStyleSheet('''
-        background-color: rgb(30, 30, 30);
+            QStatusBar{
+                background-color: rgb(30, 30, 30);
+                border:0px;
+            }
+            QStatusBar>QWidget, QStatusBar::item{
+                border:0px;
+            }
         ''')
         self.statusBar().hide()
-        self.resize(QDesktopWidget().width(), QDesktopWidget().height())
+        self.resize(QDesktopWidget().width(), QDesktopWidget().availableGeometry().height())
         if os.path.exists("logo.png"):
             splash_screen.hide()
 
     def resizeEvent(self, event):
+        QMainWindow.resizeEvent(self, event)
+        event.accept()
         try:
             self.parsers_list.move_buttons()
         except AttributeError as e:
             print(e)
-        QMainWindow.resizeEvent(self, event)
 
     def close_tab(self, ind):
         parser_edit = self.main.widget(ind)
@@ -176,6 +198,19 @@ class MainWindow(QMainWindow):
 
     def init_parsers_list(self):
         self.parsers_scroll = QScrollArea(self)
+        self.parsers_scroll.verticalScrollBar().setStyleSheet('''
+            QScrollBar:vertical, QScrollBar::handle:vertical,QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical, QScrollBar::left-arrow:vertical,
+            QScrollBar::right-arrow:vertical{
+                border: 1px solid white;
+                background: #121212;
+            }
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical{
+                background: #303030;
+                border:1px solid white;
+            }
+        ''')
         self.parsers_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.parsers_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.parsers_scroll.setWidgetResizable(True)

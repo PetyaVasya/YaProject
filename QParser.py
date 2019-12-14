@@ -1,20 +1,19 @@
-from PyQt5.QtGui import QPainter, QPixmap, QFontMetrics
+from PyQt5.QtGui import QPainter, QPixmap
 from PyQt5.QtTest import QTest
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QHBoxLayout, QVBoxLayout, QSizePolicy, QLineEdit, QButtonGroup, QGridLayout, QTextBrowser, \
     QComboBox, QScrollArea, QFileDialog, QStyle, QProgressBar, QStyleOption, QRadioButton, \
-    QStackedWidget, QTextEdit, QTreeWidget, QDialog, QMessageBox, QFrame, QCheckBox, \
+    QStackedWidget, QTextEdit, QDialog, QFrame, QCheckBox, \
     QAbstractItemView, QToolButton, QHeaderView
-from functools import reduce
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QUrl, QEvent
-import requests
 import re
 import os
 import lxml.etree as etree
+import platform
 
 from Tools import LoadingWidget, CutLabel, CustomTreeWidget, check_url, fetch_site, StoppableThread, \
-    get_sitemaps_paths, fetch_sitemaps_links, get_ranges_url
+    fetch_sitemaps_links
 
 
 class WebEnginePage(QWebEnginePage):
@@ -59,6 +58,7 @@ class ParsersList(QWidget):
         py = self.parent().geometry().y()
         dw = self.createNewButton.maximumWidth()
         dh = self.createNewButton.maximumHeight()
+        print(ph, pw)
         self.createNewButton.setGeometry(px + pw - dw - 30, py + ph - dh - 21 - min(29, (ph / 8)),
                                          dw, dh)
         for i in self.get_elements():
@@ -71,6 +71,7 @@ class ParsersList(QWidget):
         self.setStyleSheet("""
         ParsersList {
             background-color: #121212;
+            border:0px;
             }
         """)
         self.layout_v = QVBoxLayout(self)
@@ -436,10 +437,18 @@ class ParserEdit(QWidget):
             self.open_browser()
         self.view.loadFinished.connect(lambda: self.view.setZoomFactor(0.5))
         print(self.links_type)
-        self.setStyleSheet(
-            '''
-            color: white;
-             ''')
+        if platform.system() == "Windows":
+            self.setStyleSheet('''
+                QWidget{
+                background: #121212;
+                color:white;
+                }
+            ''')
+        else:
+            self.setStyleSheet(
+                '''
+                color: white;
+                 ''')
 
     def get_name(self):
         return self.name_edit.text()
