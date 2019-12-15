@@ -1,5 +1,6 @@
 import glob
-from itertools import zip_longest
+from itertools import zip_longest, product
+from multiprocessing.dummy import Pool
 from time import sleep
 import xlsxwriter
 import os
@@ -385,7 +386,6 @@ class MainWindow(QMainWindow):
                     parser_edit.new = False
                     new = self.parsers_list.add_element(name, id_p, url)
                     new.clicked[str, int].connect(self.open_parser_edit)
-                    new.set_url(url)
                 else:
                     print("error")
                     QErrorMessage(self).showMessage('Fix errors(red fields)')
@@ -632,7 +632,6 @@ class MainWindow(QMainWindow):
         del self.test[id_p]
 
     def start_parsing(self, id_p, request):
-
         fields = self.generate_attributes(request[3])
         if request[4] == "File":
             if os.path.exists(request[5]):
@@ -657,13 +656,18 @@ class MainWindow(QMainWindow):
                 worksheet.write(0, p, key)
             with open("proxies.txt", "r") as r:
                 proxies = r.read().split()
+            p = Pool(len(proxies) // 5)
             parser = Parser(proxies=proxies)
             self.parsers_list.get_element(id_p).set_links_count(len(urls))
             ind = 1
-            for urln, i in enumerate(urls, 1):
-                res = parser.parse_url(i, fields.values())
+            urln = 1
+            for res in p.imap_unordered(parser.parse_url_d, product(urls, [fields.values()])):
+                # res = parser.parse_url(i, fields.values())
                 print(res)
                 self.parsers_list.get_element(id_p).update_progress(urln)
+                i = res[0]
+                res = res[1]
+                urln += 1
                 if filter(lambda x: len(x) > 1, res):
                     ma = len(max(res, key=lambda x: len(x)))
                     for d in range(ma):

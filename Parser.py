@@ -39,7 +39,7 @@ class Parser:
                           " like Gecko) Chrome/74.0.3729.157 Safari/537.36"
         }
         r = ""
-        while self.proxies:
+        while True:
             proxie = None
             proxies = {}
             if self.proxies:
@@ -54,8 +54,16 @@ class Parser:
             r = thread.join(10)
             if r and r not in self.ERRORS:
                 return r.text
-            if (not r) or (r and proxie):
-                del self.proxies[proxie]
+            if ((not r) or (r and proxie)) and self.proxies.get(proxie):
+                try:
+                    return r.text
+                except:
+                    del self.proxies[proxie]
+            if not self.proxies:
+                try:
+                    return r.text
+                except:
+                    return r
         return r
 
     def get_field(self, html, field, multiple=False):
@@ -91,9 +99,17 @@ class Parser:
         html = self.get_html(url)
         if html == "Timeout" or html in self.ERRORS:
             return [[html]]
-        elif html == "UrlError":
+        elif (not html) or (html == "UrlError"):
             return [["UrlError"]]
         return [self.get_field(html, field, field[2]) for field in fields]
+
+    def parse_url_d(self, data):
+        html = self.get_html(data[0])
+        if html == "Timeout" or html in self.ERRORS:
+            return [[html]]
+        elif html == "UrlError":
+            return [["UrlError"]]
+        return data[0], [self.get_field(html, field, field[2]) for field in data[1]]
 
     def parse_urls(self, links, fields):
         if fields[2]:

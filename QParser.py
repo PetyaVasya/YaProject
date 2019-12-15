@@ -100,6 +100,7 @@ class ParsersList(QWidget):
     def add_element(self, name, id_p, url="", respath=None):
         new = ParserElement(name=name, id_p=id_p, respath=respath, parent=self)
         new.set_url(url)
+        self.q_parsers[id_p] = (name, url, respath)
         self.delete_buttons.addButton(new.delete, id_p)
         self.parse_buttons.addButton(new.run, id_p)
         self.layout_v.addWidget(new, alignment=Qt.AlignTop)
@@ -203,8 +204,7 @@ class ParserElement(QWidget):
         second_l.addWidget(self.parse_bar, Qt.AlignCenter)
         second.setLayout(second_l)
         self.back.addWidget(self.parse_bar)
-        self.parse_bar.setFormat("%v/%m")
-        self.parse_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.parse_bar.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.progress_changed.connect(self.set_progress)
         if not self.execute:
             self.parse_bar.hide()
@@ -303,12 +303,13 @@ class ParserElement(QWidget):
 
     def set_url(self, url):
         self.url.setText(url)
+        self.url.setFixedWidth(max(self.info.cellRect(2, 3).width(), 30)* 6)
 
     def get_url(self):
         self.url.text()
 
     def resizeEvent(self, QResizeEvent):
-        self.url.setFixedWidth(self.info.cellRect(2, 3).width() * 6)
+        self.url.setFixedWidth(max(self.info.cellRect(2, 3).width(), 30) * 6)
         QResizeEvent.accept()
 
 
@@ -1135,7 +1136,7 @@ class UploadLinksWidget(QDialog):
         self.body.addLayout(self.bar)
         self.setGeometry(300, 300, 500, 500)
         if url:
-            self.open_url()
+            self.open_url(check=False)
 
     def change_interface(self, btn):
         if self.id_p:
@@ -1193,12 +1194,10 @@ class UploadLinksWidget(QDialog):
         self.global_loading.resize(self.sitemap.size())
         event.accept()
 
-    def open_url(self, reload=False):
+    def open_url(self, reload=False, check=True):
         url = self.base_url.text()
-        if check_url(url):
+        if (not check) or check_url(url):
             self.loading.show()
-            for r in glob.glob("./sitemaps/*_" + str(self.id_p) + "_small.xml"):
-                os.remove(r)
             paths = get_sitemaps_paths(url, self.id_p, './sitemaps')
             if not reload and os.path.exists(paths[0]):
                 if not os.path.exists(paths[1]):
@@ -1210,6 +1209,8 @@ class UploadLinksWidget(QDialog):
                                                        args=[paths[1]])
                 self.sitemap_action.start()
             else:
+                for r in glob.glob("./sitemaps/*_" + str(self.id_p) + "_small.xml"):
+                    os.remove(r)
                 if self.sitemap_action and self.sitemap_action.isAlive():
                     self.sitemap_action.kill()
                     self.sitemap_action.join()

@@ -405,9 +405,13 @@ def fetch_sitemaps_links(res, id_p):
     all = etree.parse(paths[0])
     small = etree.parse(paths[1])
     find = './/links[@checked="True"]'
-
+    not_find = './/links[@checked="False"]'
     between = small.findall(find)
-    if between:
+    not_between = small.findall(not_find)
+    print("find")
+    if not between:
+        return []
+    if len(not_between) > len(between):
         return list(filter(lambda z: re.fullmatch(mask, z),
                            map(lambda x: x.text, reduce(lambda g, h: g + h,
                                                         map(lambda y: all.findall(
@@ -415,6 +419,20 @@ def fetch_sitemaps_links(res, id_p):
                                                                 2] + "/link"),
                                                             between))))
                     )
+    else:
+        with open("./sitemaps/avito.ru.txt", mode="r") as r:
+            links = set(r.read().split("\n"))
+        if not not_between:
+            return list(links)
+        return list(links - set(filter(lambda z: re.fullmatch(mask, z),
+                       map(lambda x: x.text, reduce(lambda g, h: g + h,
+                                                    map(lambda y: all.findall(
+                                                        small.getpath(y).split('/', 2)[
+                                                            2] + "/link"),
+                                                        not_between))))
+                ))
+
+        return list(links)
     return []
 
 
