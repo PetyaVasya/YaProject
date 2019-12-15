@@ -5,6 +5,8 @@ from requests.exceptions import ProxyError, ConnectionError, RetryError
 from bs4 import BeautifulSoup
 import re
 
+from Tools import ThreadWithReturnValue
+
 
 class Parser:
     """
@@ -27,7 +29,7 @@ class Parser:
             return "GeneralProxyError"
         except Exception as e:
             print(e)
-            return ""
+            return "UrlError"
         print("I'm all")
         return r
 
@@ -36,7 +38,8 @@ class Parser:
             'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
                           " like Gecko) Chrome/74.0.3729.157 Safari/537.36"
         }
-        while True:
+        r = ""
+        while self.proxies:
             proxie = None
             proxies = {}
             if self.proxies:
@@ -49,13 +52,13 @@ class Parser:
             thread.daemon = True
             thread.start()
             r = thread.join(10)
-            break
-        if r and r not in self.ERRORS:
-            return r.text
+            if r and r not in self.ERRORS:
+                return r.text
+            if (not r) or (r and proxie):
+                del self.proxies[proxie]
         return r
 
     def get_field(self, html, field, multiple=False):
-        print(multiple)
         soup = BeautifulSoup(html, "lxml")
         if field[1] == "Text":
             if multiple:
@@ -87,9 +90,9 @@ class Parser:
     def parse_url(self, url, fields):
         html = self.get_html(url)
         if html == "Timeout" or html in self.ERRORS:
-            return [html]
-        elif not html:
-            return ["UrlError"]
+            return [[html]]
+        elif html == "UrlError":
+            return [["UrlError"]]
         return [self.get_field(html, field, field[2]) for field in fields]
 
     def parse_urls(self, links, fields):
@@ -97,20 +100,3 @@ class Parser:
             return zip(*[self.parse_url(url, fields) for url in links])
         else:
             return [self.parse_url(url, fields) for url in links]
-
-
-class ThreadWithReturnValue(Thread):
-    def __init__(self, group=None, target=None, name=None,
-                 args=(), kwargs={}, Verbose=None):
-        Thread.__init__(self, group, target, name, args, kwargs)
-        self._return = None
-
-    def run(self):
-        print(type(self._target))
-        if self._target is not None:
-            self._return = self._target(*self._args,
-                                        **self._kwargs)
-
-    def join(self, *args):
-        Thread.join(self, *args)
-        return self._return

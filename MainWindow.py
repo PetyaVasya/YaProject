@@ -1,3 +1,4 @@
+import glob
 from itertools import zip_longest
 from time import sleep
 import xlsxwriter
@@ -250,7 +251,7 @@ class MainWindow(QMainWindow):
                 if i[3] and not os.path.exists(i[3]):
                     respath = ""
             else:
-                paths = get_sitemaps_paths(i[2].split(';')[0], './sitemaps')
+                paths = get_sitemaps_paths(i[2].split(';')[0], i[0], './sitemaps')
                 print(paths)
                 if i[2] and (not os.path.exists(paths[0]) or (not os.path.exists(paths[1]))):
                     links = ""
@@ -295,9 +296,11 @@ class MainWindow(QMainWindow):
                 self.parse[id_p].join()
             del self.parsers_list.q_parsers[id_p]
             self.db.delete_parser(id_p)
-            res_path = self.res_path + '/' + str(id_p) + '.xlsx'
-            if os.path.exists(res_path):
-                os.remove(res_path)
+            # res_path = self.res_path + '/' + str(id_p) + '.xlsx'
+            # if os.path.exists(res_path):
+            #     os.remove(res_path)
+            for r in glob.glob("./sitemaps/*_" + str(id_p) + "_small.xml"):
+                os.remove(r)
 
     def run_stop_parser(self, btn):
         """
@@ -311,28 +314,13 @@ class MainWindow(QMainWindow):
         if self.parse.get(id_p):
             reply = QMessageBox.question(self, "Stop parsing", "You lost your progress",
                                          QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-
             if reply == QMessageBox.Yes:
-                self.parse[id_p].kill()
-                self.parse[id_p].join()
+                if self.parse[id_p].isAlive():
+                    self.parse[id_p].kill()
+                    self.parse[id_p].join()
         else:
-            parser = self.db.get_parser(id_p)
-            fields = self.generate_attributes(parser[3])
-            if parser[4] == "File":
-                if os.path.exists(parser[5]):
-                    with open(parser[5], "r") as links:
-                        links = links.read().split("\n")
-                else:
-                    QErrorMessage(self).showMessage('File path wrong')
-                    return
-            elif parser[4] == "Links":
-                links = parser[5].split("\n")
-            elif parser[4] == "Link":
-                links = get_ranges_url(parser[2])
-            elif parser[4] == "Sitemap":
-                links = fetch_sitemaps_links(parser[5])
             self.parse[id_p] = StoppableThread(target=self.start_parsing,
-                                               args=(id_p, links, fields,))
+                                               args=(id_p, self.db.get_parser(id_p)))
             self.parse[id_p].start()
             self.parsers_list.get_element(id_p).run_stop()
 
@@ -446,7 +434,7 @@ class MainWindow(QMainWindow):
             if self.test.get(id_p) and self.test[id_p].isAlive():
                 self.test[id_p].kill()
                 self.test[id_p].join()
-            if self.parse.get(id_p):
+            if self.parse.get(id_p) and self.parse[id_p].isAlive():
                 self.parse[id_p].kill()
                 self.parse[id_p].join()
 
@@ -491,10 +479,12 @@ class MainWindow(QMainWindow):
                 name = parser_edit.get_name()
                 url = parser_edit.get_url()
                 if parser_edit.new:
-                    id_p = self.db.add_parser(name, url, attrs)
+                    id_p = self.db.add_parser(name, url, self.formated_attributes(attrs), parser_edit.links_type,
+                                          parser_edit.res)
                     parser_edit.q_parser.id_p = id_p
                     parser_edit.new = False
                     new = self.parsers_list.add_element(name, id_p, url)
+                    new.set_url(url)
                     self.main.setTabText(self.main.currentIndex(), name)
                     new.clicked[str, int].connect(self.open_parser_edit)
                 else:
@@ -524,6 +514,9 @@ class MainWindow(QMainWindow):
                     id_p = parser_edit.get_id()
                     parser_edit.create_log_widget()
                     self.main.setTabText(self.main.currentIndex(), parser_edit.get_name())
+                    if self.test.get(id_p) and self.test[id_p].isAlive():
+                        self.test[id_p].kill()
+                        self.test[id_p].join()
                     self.test[id_p] = StoppableThread(target=self.start_test,
                                                       args=(self.main.currentIndex(), attrs,))
                     self.test[id_p].start()
@@ -531,17 +524,8 @@ class MainWindow(QMainWindow):
             elif btn.text() == "Run":
                 if self.save_changes_dialog(parser_edit):
                     id_p = parser_edit.get_id()
-                    if self.test.get(id_p):
-                        self.test[id_p].kill()
-                        self.test[id_p].join()
-                    if parser_edit.links_type == 'Sitemap':
-                        links = fetch_sitemaps_links(parser_edit.res)
-                    elif parser_edit.links_type == 'Link':
-                        links = get_ranges_url(parser_edit.get_url())
-                    else:
-                        links = parser_edit.links
                     new = StoppableThread(target=self.start_parsing, args=(
-                        parser_edit.get_id(), links, parser_edit.get_attributes(),))
+                        id_p, self.db.get_parser(id_p)))
                     self.parse[parser_edit.get_id()] = new
                     self.parse[id_p].start()
                     self.parsers_list.get_element(id_p).run_stop()
@@ -594,7 +578,9 @@ class MainWindow(QMainWindow):
         parser_edit = self.main.widget(ind)
         id_p = parser_edit.get_id()
         # try:
-        parser = Parser()
+        with open("proxies.txt", "r") as r:
+            proxies = r.read().split()
+        parser = Parser(proxies)
         fields = tuple(map(tuple, attrs.values()))
         print(fields)
         urlm = parser_edit.get_url()
@@ -645,8 +631,23 @@ class MainWindow(QMainWindow):
             parser_edit.add_logs("Create attrs")
         del self.test[id_p]
 
-    def start_parsing(self, id_p, urls, fields):
-        print(urls)
+    def start_parsing(self, id_p, request):
+
+        fields = self.generate_attributes(request[3])
+        if request[4] == "File":
+            if os.path.exists(request[5]):
+                with open(request[5], "r") as links:
+                    urls = links.read().split("\n")
+            else:
+                QErrorMessage(self).showMessage('File path wrong')
+                return
+        elif request[4] == "Links":
+            urls = request[5].split("\n")
+        elif request[4] == "Link":
+            urls = get_ranges_url(request[2])
+        elif request[4] == "Sitemap":
+            urls = fetch_sitemaps_links(request[5], request[0])
+
         element = self.parsers_list.get_element(id_p)
         try:
             workbook = xlsxwriter.Workbook(self.res_path + '/' + str(id_p) + '.xlsx')

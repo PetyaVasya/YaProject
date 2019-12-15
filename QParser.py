@@ -1,3 +1,5 @@
+import glob
+
 from PyQt5.QtGui import QPainter, QPixmap
 from PyQt5.QtTest import QTest
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineProfile
@@ -5,7 +7,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QLabel, \
     QHBoxLayout, QVBoxLayout, QSizePolicy, QLineEdit, QButtonGroup, QGridLayout, QTextBrowser, \
     QComboBox, QScrollArea, QFileDialog, QStyle, QProgressBar, QStyleOption, QRadioButton, \
     QStackedWidget, QTextEdit, QDialog, QFrame, QCheckBox, \
-    QAbstractItemView, QToolButton, QHeaderView
+    QAbstractItemView, QToolButton, QHeaderView, QMessageBox
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QUrl, QEvent
 import re
 import os
@@ -13,7 +15,7 @@ import lxml.etree as etree
 import platform
 
 from Tools import LoadingWidget, CutLabel, CustomTreeWidget, check_url, fetch_site, StoppableThread, \
-    fetch_sitemaps_links
+    fetch_sitemaps_links, get_sitemaps_paths, make_small_tree
 
 
 class WebEnginePage(QWebEnginePage):
@@ -95,7 +97,7 @@ class ParsersList(QWidget):
         return next((self.layout_v.itemAt(i).widget() for i in range(self.layout_v.count()) if
                      self.layout_v.itemAt(i).widget().id_p == id_p), None)
 
-    def add_element(self, name, id_p, url, respath=None):
+    def add_element(self, name, id_p, url="", respath=None):
         new = ParserElement(name=name, id_p=id_p, respath=respath, parent=self)
         new.set_url(url)
         self.delete_buttons.addButton(new.delete, id_p)
@@ -302,6 +304,9 @@ class ParserElement(QWidget):
     def set_url(self, url):
         self.url.setText(url)
 
+    def get_url(self):
+        self.url.text()
+
     def resizeEvent(self, QResizeEvent):
         self.url.setFixedWidth(self.info.cellRect(2, 3).width() * 6)
         QResizeEvent.accept()
@@ -431,7 +436,7 @@ class ParserEdit(QWidget):
                     self.res.strip().strip("\n").strip("\x00").split("\n"))))
                 self.set_links(self.links)
             elif self.links_type == "Sitemap":
-                self.links = fetch_sitemaps_links(self.res)[:100]
+                self.links = fetch_sitemaps_links(self.res, self.get_id())[:100]
                 self.set_links(self.links)
             self.url_edit.setText(self.q_parser.url)
             self.open_browser()
@@ -612,7 +617,7 @@ class ParserEdit(QWidget):
         в список.
         :return:
         """
-        self.upload_window = UploadLinksWidget(self, self.links_type, self.res)
+        self.upload_window = UploadLinksWidget(self.get_id(), self, self.links_type, self.res)
         if self.upload_window.exec_():
             self.links_type, self.res = self.upload_window.get_result()
             if self.links_type == "File":
@@ -623,7 +628,7 @@ class ParserEdit(QWidget):
                     self.res.split("\n"))))
                 self.set_links(self.links)
             elif self.links_type == "Sitemap":
-                self.links = fetch_sitemaps_links(self.res)[:100]
+                self.links = fetch_sitemaps_links(self.res, self.get_id())[:100]
                 self.set_links(self.links)
             elif self.links_type == "Link":
                 self.links = []
@@ -632,7 +637,7 @@ class ParserEdit(QWidget):
     def links_from_file(self, file):
         if file:
             with open(file, "r") as links:
-                self.links = links.read().split("\n")
+                self.links = links.read().split("\n")[:100]
                 self.set_links(self.links)
 
     def set_links(self, links):
@@ -993,8 +998,9 @@ class UploadLinksWidget(QDialog):
     Класс связанный с ParserEdit. Отвечающий за загрузку пользователем ссылком для парсинга.
     """
 
-    def __init__(self, parent=None, *args):
+    def __init__(self, id_p, parent=None, *args):
         super(UploadLinksWidget, self).__init__(parent)
+        self.id_p = id_p
         self.initUI(*args)
 
     def initUI(self, type_p=None, data=None):
@@ -1108,6 +1114,9 @@ class UploadLinksWidget(QDialog):
         # self.sitemap_layout.addWidget(self.loading)
         self.sitemap.setLayout(self.sitemap_layout)
 
+        self.global_loading = LoadingWidget(self.sitemap)
+        self.global_loading.hide()
+
         self.final = QButtonGroup()
         self.final.addButton(QPushButton("OK", self))
         self.final.addButton(QPushButton("Clear", self))
@@ -1129,31 +1138,50 @@ class UploadLinksWidget(QDialog):
             self.open_url()
 
     def change_interface(self, btn):
-        id_p = self.btn_group.id(btn)
-        self.interface.setCurrentIndex(id_p)
+        if self.id_p:
+            id_p = self.btn_group.id(btn)
+            self.interface.setCurrentIndex(id_p)
+        else:
+            QMessageBox.information(self, "Alert", "For use sitemap save parser")
+            self.btn_links.setChecked(True)
 
     def get_file(self):
         self.res = QFileDialog.getOpenFileName(self, 'Выберите файл с ссылками', '')[0]
         if self.res:
             self.accept()
+            if self.type_p == "Sitemap":
+                paths = get_sitemaps_paths(self.base_url.text(), self.id_p, './sitemaps')
+                if os.path.exists(paths[1]):
+                    os.remove(paths[1])
             self.type_p = "File"
 
     def close_dialog(self, btn):
+
         if btn.text() == "OK":
             self.type_p = self.btn_group.checkedButton().text()
             if self.type_p == "Links":
+                paths = get_sitemaps_paths(self.base_url.text(), self.id_p, './sitemaps')
+                if os.path.exists(paths[1]):
+                    os.remove(paths[1])
                 self.res = self.links_edit.toPlainText()
             else:
                 self.res = ";".join((self.base_url.text(), self.url_mask.text()))
-                self.sitemap_tree.save()
+                self.global_loading.show()
+                QTest.qWait(250)
+                t = StoppableThread(target=self.sitemap_tree.save)
+                t.start()
+                t.join()
             self.accept()
         elif btn.text() == "Clear":
+            paths = get_sitemaps_paths(self.base_url.text(), self.id_p, './sitemaps')
+            if os.path.exists(paths[1]):
+                os.remove(paths[1])
             self.type_p = "Link"
             self.res = ""
             self.accept()
         else:
             self.reject()
-        if self.sitemap_action:
+        if self.sitemap_action and self.sitemap_action.isAlive():
             self.sitemap_action.kill()
             self.sitemap_action.join()
 
@@ -1162,19 +1190,24 @@ class UploadLinksWidget(QDialog):
 
     def resizeEvent(self, event):
         self.loading.resize(self.sitemap_tree.size())
+        self.global_loading.resize(self.sitemap.size())
         event.accept()
 
     def open_url(self, reload=False):
         url = self.base_url.text()
         if check_url(url):
             self.loading.show()
-            path = './sitemaps/' + url.split("//")[1].split("/")[0]
-            if not reload and os.path.exists(path + ".xml"):
+            for r in glob.glob("./sitemaps/*_" + str(self.id_p) + "_small.xml"):
+                os.remove(r)
+            paths = get_sitemaps_paths(url, self.id_p, './sitemaps')
+            if not reload and os.path.exists(paths[0]):
+                if not os.path.exists(paths[1]):
+                    make_small_tree(paths[0], paths[1])
                 if self.sitemap_action and self.sitemap_action.isAlive():
                     self.sitemap_action.kill()
                     self.sitemap_action.join()
                 self.sitemap_action = StoppableThread(target=self.update_sitemap,
-                                                       args=[path + "_small.xml"])
+                                                       args=[paths[1]])
                 self.sitemap_action.start()
             else:
                 if self.sitemap_action and self.sitemap_action.isAlive():
@@ -1192,16 +1225,17 @@ class UploadLinksWidget(QDialog):
             self.update()
 
     def sitemap_parse(self, url, path):
+        paths = get_sitemaps_paths(url, self.id_p, './sitemaps')
         try:
-            fetch_site(url, path)
-            sitemap_path = path + '/' + url.split("//")[1].split("/")[0] + "_small.xml"
-            self.sitemap_tree.set_xml(sitemap_path)
+            fetch_site(url, self.id_p, path)
+            # sitemap_path = path + '/' + url.split("//")[1].split("/")[0] + "_small.xml"
+            self.sitemap_tree.set_xml(paths[1])
         finally:
             self.loading.hide()
             self.update()
 
     def closeEvent(self, event):
-        if self.sitemap_action:
+        if self.sitemap_action and self.sitemap_action.isAlive():
             self.sitemap_action.kill()
             self.sitemap_action.join()
 

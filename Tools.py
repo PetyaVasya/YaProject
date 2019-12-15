@@ -308,8 +308,14 @@ class CustomTreeWidget(QTreeWidget):
 def check_url(url):
     try:
         url = get_ranges_url(url)[0]
-        requests.get(url)
-        return url
+        thread = ThreadWithReturnValue(target=requests.get, args=(url,))
+        thread.daemon = True
+        thread.start()
+        r = thread.join(10)
+        if r:
+            return url
+        else:
+            return False
     except Exception as e:
         return False
 
@@ -367,31 +373,35 @@ def make_tree(links_path, res_path):
             w.write()
 
 
-def make_small_tree(tree_path):
+def make_small_tree(tree_path, res_path=None):
     import re
     t = open(tree_path, "r").read()
     tree_path = tree_path.rsplit('.', 1)
-    open(tree_path[0] + "_small." + tree_path[1], "w").write(re.sub(
+    if not res_path:
+        res_path = tree_path[0] + "_small." + tree_path[1]
+    open(res_path, "w").write(re.sub(
         r'<links checked="(.*?)">((<link>[^<]+<\/link>){1,5})((<link>[^<]+<\/link>)+)<\/links>',
         r'<links checked="\1">\2</links>', t))
 
 
-def fetch_site(url, path):
+def fetch_site(url, id, path):
     site_path = path + "/" + url.split("//")[1].split('/')[0]
     get_links(url, site_path + ".txt")
     make_tree(site_path + ".txt", site_path + ".xml")
-    make_small_tree(site_path + ".xml")
+    make_small_tree(site_path + ".xml", site_path + "_" + str(id) + "_small.xml")
 
 
-def get_sitemaps_paths(url, start=""):
+def get_sitemaps_paths(url, id, start=""):
+    if not url:
+        return start + "/" + str(id) + ".xml", start + "/" + str(id) + "_small.xml"
     site_path = start + "/" + url.split("//")[1].split('/')[0]
-    return site_path + ".xml", site_path + "_small.xml"
+    return site_path + ".xml", site_path + "_" + str(id) + "_small.xml"
 
 
-def fetch_sitemaps_links(res):
+def fetch_sitemaps_links(res, id_p):
     res = res.split(";")
     mask = res[1] if res[1] else ".*"
-    paths = get_sitemaps_paths(res[0], "./sitemaps")
+    paths = get_sitemaps_paths(res[0], id_p, "./sitemaps")
     all = etree.parse(paths[0])
     small = etree.parse(paths[1])
     find = './/links[@checked="True"]'
@@ -428,3 +438,19 @@ def ultra_replace(keys, attrs, replacement):
     for i in zip(keys, attrs):
         replacement = replacement.replace(*i)
     return replacement
+
+
+class ThreadWithReturnValue(Thread):
+    def __init__(self, group=None, target=None, name=None,
+                 args=(), kwargs={}, Verbose=None):
+        Thread.__init__(self, group, target, name, args, kwargs)
+        self._return = None
+
+    def run(self):
+        if self._target is not None:
+            self._return = self._target(*self._args,
+                                        **self._kwargs)
+
+    def join(self, *args):
+        Thread.join(self, *args)
+        return self._return
