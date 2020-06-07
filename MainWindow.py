@@ -1,4 +1,5 @@
 import glob
+import multiprocessing
 from itertools import zip_longest, product
 from multiprocessing.dummy import Pool
 from time import sleep
@@ -656,7 +657,7 @@ class MainWindow(QMainWindow):
                 worksheet.write(0, p, key)
             with open("proxies.txt", "r") as r:
                 proxies = r.read().split()
-            p = Pool(len(proxies) // 5)
+            p = Pool(min(multiprocessing.cpu_count(), len(proxies) // 5))
             parser = Parser(proxies=proxies)
             self.parsers_list.get_element(id_p).set_links_count(len(urls))
             ind = 1

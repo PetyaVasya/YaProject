@@ -39,7 +39,7 @@ class ParsersList(QWidget):
     def resizeEvent(self, event):
         for widget in self.get_elements():
             widget.setFixedWidth(self.width() - 30)
-            widget.move_delete()
+        self.move_buttons()
 
     def paintEvent(self, evt):
         super(ParsersList, self).paintEvent(evt)
@@ -60,7 +60,6 @@ class ParsersList(QWidget):
         py = self.parent().geometry().y()
         dw = self.createNewButton.maximumWidth()
         dh = self.createNewButton.maximumHeight()
-        print(ph, pw)
         self.createNewButton.setGeometry(px + pw - dw - 30, py + ph - dh - 21 - min(29, (ph / 8)),
                                          dw, dh)
         for i in self.get_elements():
@@ -274,7 +273,10 @@ class ParserElement(QWidget):
 
     def open_result(self):
         if os.path.exists(self.fpath):
-            os.system("open " + self.fpath)
+            if platform.system() == 'Windows':
+                os.system("start " + self.fpath)
+            else:
+                os.system("open " + self.fpath)
 
     def delete_self(self):
         self.setParent(None)

@@ -9,7 +9,6 @@ idna==2.8
 lxml==4.4.1
 macholib==1.11
 monotonic==1.5
-PyInstaller==3.5
 PyQt5==5.13.2
 PyQt5-sip==12.7.0
 PyQtWebEngine==5.13.2

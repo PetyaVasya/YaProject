@@ -67,7 +67,10 @@ class Parser:
         return r
 
     def get_field(self, html, field, multiple=False):
-        soup = BeautifulSoup(html, "lxml")
+        try:
+            soup = BeautifulSoup(html, "lxml")
+        except Exception:
+            return ["None"]
         if field[1] == "Text":
             if multiple:
                 select = soup.select(field[0])
